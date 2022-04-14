@@ -1,3 +1,3 @@
 # hello README
 
-harri's first vscode extension
+harri's vscode extension
