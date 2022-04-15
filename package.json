@@ -4,6 +4,7 @@
 	"displayName": "rapid tools",
 	"description": "rapid menu extension",
 	"version": "0.0.1",
+	"icon": "icon/icon.png",
 	"repository": "https://github.com/zhanghuaixiang/vscode-extension.git",
 	"engines": {
 		"vscode": "^1.64.0"
