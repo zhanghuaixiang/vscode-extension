@@ -14,7 +14,7 @@
 	"activationEvents": [
         "onCommand:hello.helloworld",
 		"onCommand:hi.harri",
-		"onCommand:start.a",
+		"onCommand:startup",
 		"onView:createNewPage"
 	],
 	"main": "./dist/extension.js",
@@ -22,7 +22,7 @@
 		"menus": {
 			"explorer/context": [
 				{
-					"command": "start.a",
+					"command": "startup",
 					"group": "navigation"
 				}
 			]
@@ -35,7 +35,7 @@
 				"command": "hi.harri",
 				"title": "hi harri"
 			},{
-				"command": "start.a",
+				"command": "startup",
 				"title": "启动"
 			}
 		]
