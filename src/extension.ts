@@ -3,15 +3,17 @@
 import * as vscode from 'vscode';
 import LeftMenus from "./leftMenus";
 
-// this method is called when your extension is activated
+
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+	// 启动服务
 	vscode.commands.registerCommand("startup", LeftMenus.startup);
+	vscode.commands.registerCommand("shutdown.task", LeftMenus.shutdownTask);
 }
 
 // this method is called when your extension is deactivated
 export function deactivate() {
-	vscode.commands.registerCommand("start.a", () => {
+	vscode.commands.registerCommand("startup", () => {
 		console.log("harri-tools插件未启用");
 	});	
 }
