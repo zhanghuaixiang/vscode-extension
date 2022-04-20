@@ -3,17 +3,20 @@
 import * as vscode from 'vscode';
 import LeftMenus from "./leftMenus";
 
-
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-	// 启动服务
-	vscode.commands.registerCommand("startup", LeftMenus.startup);
-	vscode.commands.registerCommand("shutdown.task", LeftMenus.shutdownTask);
+	LeftMenus.showCommand().then(()=>{
+		vscode.commands.executeCommand("setContext", "condition.showRapidMenu", true);
+		// 启动服务
+		vscode.commands.registerCommand("startup", LeftMenus.startup);
+		// 终止终端指令
+		vscode.commands.registerCommand("shutdown.task", LeftMenus.shutdownTask);
+	});
 }
 
 // this method is called when your extension is deactivated
 export function deactivate() {
 	vscode.commands.registerCommand("startup", () => {
-		console.log("harri-tools插件未启用");
-	});	
+		vscode.window.showWarningMessage("rapid tools插件未启用");
+	});
 }
