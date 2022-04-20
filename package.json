@@ -1,10 +1,9 @@
 {
   	"name": "rapid-tools",
-	"author": "张怀祥",
-	"publisher": "张怀祥",
-	"displayName": "rapid tools",
-	"description": "rapid menu extension",
-	"version": "0.0.1",
+	"publisher": "zhanghuaixiang",
+	"displayName": "rapid-tools",
+	"description": "快捷菜单指令 vscode 插件",
+	"version": "0.0.2",
 	"icon": "images/icon.png",
 	"repository": "https://github.com/zhanghuaixiang/vscode-extension.git",
 	"engines": {
@@ -54,7 +53,7 @@
 		"test": "node ./out/test/runTest.js"
 	},
 	"devDependencies": {
-		"@types/vscode": "^1.64.0",
+		"@types/vscode": "^1.44.0",
 		"@types/glob": "^7.2.0",
 		"@types/mocha": "^9.1.0",
 		"@types/node": "14.x",
