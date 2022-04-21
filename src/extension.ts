@@ -2,15 +2,22 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import LeftMenus from "./leftMenus";
+const path = require("path");
+const fs = require("fs");
+
+const rootPath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+const packagePath = path.join(vscode.workspace.rootPath || rootPath, "package.json");
 
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-	LeftMenus.showCommand().then(()=>{
-		vscode.commands.executeCommand("setContext", "condition.showRapidMenu", true);
-		// 启动服务
-		vscode.commands.registerCommand("startup", LeftMenus.startup);
-		// 终止终端指令
-		vscode.commands.registerCommand("shutdown.task", LeftMenus.shutdownTask);
+	LeftMenus.init();
+	// 监听package.json改变，改变后重新初始化指令
+	fs.watch(packagePath, ()=>{
+		// 先注销之前的指令，然后重新初始化
+		LeftMenus.commands.forEach(command => {
+			command.dispose();
+		});
+		LeftMenus.init();
 	});
 }
 

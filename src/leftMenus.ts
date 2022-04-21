@@ -8,6 +8,10 @@ const path = require("path");
 
 // 命令分隔符
 const SPLIT_TAG = "&&";
+
+const rootPath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+const packagePath = path.join(vscode.workspace.rootPath || rootPath, "package.json");
+
 let utils:{[key:string]: Function} = {
 	splitScripts(script:string) {
 		if(!script) {
@@ -65,29 +69,35 @@ let utils:{[key:string]: Function} = {
 		};
 	}
 };
+
 export default class LeftMenus {
+	static commands: Array<vscode.Disposable> = [];
+	static init() {
+		if(LeftMenus.showCommand()) {
+			vscode.commands.executeCommand("setContext", "condition.showRapidMenu", true);
+			// 启动服务
+			const startup = vscode.commands.registerCommand("startup", LeftMenus.startup);
+			LeftMenus.commands.push(startup);
+			// 终止终端指令
+			const shutdown = vscode.commands.registerCommand("shutdown.task", LeftMenus.shutdownTask);
+			LeftMenus.commands.push(shutdown);
+		}else{
+			vscode.commands.executeCommand("setContext", "condition.showRapidMenu", false);
+		}
+	}
 	// 判断有没有配置快捷菜单，配置后才展示菜单项
 	static showCommand() {
-		return new Promise((resolve, reject) => {
-			const rootPath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-			const packagePath = path.join(vscode.workspace.rootPath || rootPath, "package.json");
-			// 判断路径是否存在
-			if(fs.existsSync(packagePath)) {
-				const { rapidMenus } = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
-				if (rapidMenus) {
-					resolve(true);
-				} else {
-					reject();
-				}
-			} else {
-				reject();
+		// 判断路径是否存在
+		if(fs.existsSync(packagePath)) {
+			const { rapidMenus } = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
+			if (rapidMenus) {
+				return true;
 			}
-		});
+		}
+		return false;
 	}
 	// 菜单--启动
     static startup():void {
-		const rootPath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-		const packagePath = path.join(vscode.workspace.rootPath || rootPath, "package.json");
 		const packageJSON = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
 		// scripts：package.json中配置的命令；rapidMenu：package.json中配置的快捷菜单
 		const { scripts, rapidMenus } = packageJSON;
@@ -101,15 +111,13 @@ export default class LeftMenus {
 		} else {
 			vscode.window.showErrorMessage("配置格式不符合要求");
 		}
+		
 		if(watch) {
-			// eslint-disable-next-line @typescript-eslint/naming-convention
-			const { link_script, files } = watch;
-			files.forEach((filePath:string) => {
-				console.log(path.join(packagePath, "../", filePath));
+			watch.files.forEach((filePath:string) => {
 				// 监听文件变更，如果发生改变，则终止相应终端并重新开启
 				fs.watch(path.join(packagePath, "../", filePath), () => {
-					const names = utils.splitScripts(link_script);
-					names.forEach((n:string)=> {
+					const names = utils.splitScripts(watch.link_script);
+					names.forEach((n:string) => {
 						LeftMenus.shutdownTask(n);
 						LeftMenus.createTerminalAndExec(n, scripts);
 					});
