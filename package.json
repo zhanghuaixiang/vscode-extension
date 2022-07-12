@@ -1,9 +1,9 @@
 {
-  	"name": "rapid-tools",
+	"name": "rapid-tools",
 	"publisher": "zhanghuaixiang",
 	"displayName": "rapid-tools",
 	"description": "快捷菜单指令 vscode 插件",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"icon": "images/icon.png",
 	"repository": "https://github.com/zhanghuaixiang/vscode-extension.git",
 	"engines": {
@@ -25,7 +25,8 @@
 					"command": "startup",
 					"group": "navigation",
 					"when": "condition.showRapidMenu"
-				},{
+				},
+				{
 					"command": "shutdown.task"
 				}
 			]
@@ -34,7 +35,8 @@
 			{
 				"command": "shutdown.task",
 				"title": "终止终端进程"
-			},{
+			},
+			{
 				"command": "startup",
 				"title": "启动"
 			}
@@ -49,22 +51,24 @@
 		"watch-tests": "tsc -p . -w --outDir out",
 		"pretest": "yarn run compile-tests && yarn run compile && yarn run lint",
 		"lint": "eslint src --ext ts",
-		"test": "node ./out/test/runTest.js"
+		"test": "node ./out/test/runTest.js",
+		"vsce": "vsce package"
 	},
 	"devDependencies": {
-		"@types/vscode": "^1.44.0",
 		"@types/glob": "^7.2.0",
 		"@types/mocha": "^9.1.0",
 		"@types/node": "14.x",
+		"@types/vscode": "^1.44.0",
+		"@types/webpack-env": "^1.17.0",
 		"@typescript-eslint/eslint-plugin": "^5.12.1",
 		"@typescript-eslint/parser": "^5.12.1",
+		"@vscode/test-electron": "^2.1.2",
 		"eslint": "^8.9.0",
 		"glob": "^7.2.0",
 		"mocha": "^9.2.1",
-		"typescript": "^4.5.5",
 		"ts-loader": "^9.2.6",
+		"typescript": "^4.5.5",
 		"webpack": "^5.69.1",
-		"webpack-cli": "^4.9.2",
-		"@vscode/test-electron": "^2.1.2"
+		"webpack-cli": "^4.9.2"
 	}
 }
