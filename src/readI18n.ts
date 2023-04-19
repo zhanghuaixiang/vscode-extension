@@ -15,7 +15,7 @@ export default class ReadI18n {
     private static originData:ORIGINDATA = {enData:{}, cnData:{}};
     static init(packageJSON:string) {
         let config = JSON.parse(packageJSON);
-        ReadI18n.i18nConf = config.i18nConfig;
+        ReadI18n.i18nConf = config.i18nConfig || {};
         taskTab.appendLine("i18nConfig: " + JSON.stringify(ReadI18n.i18nConf));
 
         ReadI18n.bindEvent();

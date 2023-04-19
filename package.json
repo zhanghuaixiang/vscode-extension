@@ -15,6 +15,7 @@
 	"activationEvents": [
 		"onCommand:startup",
 		"onCommand:shutdown.task",
+		"onCommand:gerrit.commit",
 		"*"
 	],
 	"main": "./dist/extension.js",
@@ -28,9 +29,36 @@
 				},
 				{
 					"command": "shutdown.task"
+				},
+				{
+					"group": "navigation",
+					"submenu": "nihao",
+					"when": "true"
+				}
+			],
+			"nihao": [
+				{
+					"command": "nihao1",
+					"group": "navigation@2"
+				},
+				{
+					"command": "nihao2",
+					"group": "navigation"
+				}
+			],
+			"editor/title": [
+				{
+					"command": "gerrit.commit",
+					"group": "navigation"
 				}
 			]
 		},
+		"submenus": [
+			{
+				"id": "nihao",
+        		"label": "父菜单"
+			}
+		],
 		"commands": [
 			{
 				"command": "shutdown.task",
@@ -39,6 +67,18 @@
 			{
 				"command": "startup",
 				"title": "启动"
+			},
+			{
+				"command": "gerrit.commit",
+				"title": "提交"
+			},
+			{
+				"command": "nihao1",
+				"title": "子菜单1"
+			},
+			{
+				"command": "nihao2",
+				"title": "子菜单2"
 			}
 		]
 	},

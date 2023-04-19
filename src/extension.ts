@@ -3,6 +3,7 @@
 import * as vscode from 'vscode';
 import LeftMenus from "./leftMenus";
 import ReadI18n from "./readI18n";
+import Commit from "./conventionalCommit";
 const path = require("path");
 const fs = require("fs");
 
@@ -14,6 +15,7 @@ export function activate(context: vscode.ExtensionContext) {
 	let packageJSON = fs.readFileSync(packagePath, "utf8");
 	LeftMenus.init();
 	ReadI18n.init(packageJSON);
+	Commit.init();
 	// 监听package.json改变，改变后重新初始化指令
 	fs.watch(packagePath, ()=>{
 		// 先注销之前的指令，然后重新初始化
