@@ -20,6 +20,27 @@
 	],
 	"main": "./dist/extension.js",
 	"contributes": {
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "conventional-review",
+					"title": "review提交",
+					"icon": "images/icon.svg"
+				}
+			]
+		},
+		"views": {
+			"conventional-review": [
+				{
+					"id": "review_1",
+					"name": "第一个"
+				},
+				{
+					"id": "review_2",
+					"name": "第2个"
+				}
+			]
+		},
 		"menus": {
 			"explorer/context": [
 				{
@@ -56,7 +77,7 @@
 		"submenus": [
 			{
 				"id": "nihao",
-        		"label": "父菜单"
+				"label": "父菜单"
 			}
 		],
 		"commands": [
