@@ -2,8 +2,8 @@
 	"name": "rapid-tools",
 	"publisher": "zhanghuaixiang",
 	"displayName": "rapid-tools",
-	"description": "快捷菜单指令 vscode 插件",
-	"version": "0.0.3",
+	"description": "ics-vscode 插件",
+	"version": "0.0.4",
 	"icon": "images/icon.png",
 	"repository": "https://github.com/zhanghuaixiang/vscode-extension.git",
 	"engines": {
@@ -29,6 +29,18 @@
 				{
 					"command": "shutdown.task"
 				}
+			],
+			"editor/context": [
+				{
+					"command": "opencc.tw2cn",
+					"title": "繁体转简体",
+					"group": "navigation@0"
+				},
+				{
+					"command": "opencc.cn2tw",
+					"title": "简体转繁体",
+					"group": "navigation@0"
+				}
 			]
 		},
 		"commands": [
@@ -39,8 +51,32 @@
 			{
 				"command": "startup",
 				"title": "启动"
+			},
+			{
+				"command": "opencc.tw2cn",
+				"title": "[ICS] 繁体 => 简体"
+			},
+			{
+				"command": "opencc.cn2tw",
+				"title": "[ICS] 简体 => 繁体"
 			}
-		]
+		],
+		"configuration": {
+			"type": "object",
+			"title": "简繁转换工具",
+			"properties": {
+				"Converter.type": {
+					"type": "string",
+					"default": "tw",
+					"enum": [
+						"hk",
+						"tw",
+						"traditional"
+					],
+					"description": "繁体类型"
+				}
+			}
+		}
 	},
 	"scripts": {
 		"vscode:prepublish": "yarn run package",
@@ -70,5 +106,8 @@
 		"typescript": "^4.5.5",
 		"webpack": "^5.69.1",
 		"webpack-cli": "^4.9.2"
+	},
+	"dependencies": {
+		"opencc-js": "^1.0.5"
 	}
 }
