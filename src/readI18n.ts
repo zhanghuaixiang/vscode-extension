@@ -23,7 +23,7 @@ export default class ReadI18n {
     }
     
     static bindEvent():void {
-        if(!ReadI18n.i18nConf.validPath) {
+        if(!ReadI18n.i18nConf?.validPath) {
             return;
         }
         // 注册气泡
@@ -73,7 +73,7 @@ export default class ReadI18n {
         }
     }
     static async setOriginData(fileName?:string, type?:string) {
-        if(!ReadI18n.i18nConf.cnPath && !ReadI18n.i18nConf.enPath) {
+        if(!ReadI18n.i18nConf?.cnPath && !ReadI18n.i18nConf?.enPath) {
             return;
         }
         const {cnPath, enPath} = ReadI18n.i18nConf;

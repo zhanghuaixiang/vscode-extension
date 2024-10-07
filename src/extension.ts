@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import LeftMenus from "./leftMenus";
 import ReadI18n from "./readI18n";
 import CN2TW from "./cn2tw";
+import ENConverter from './enConverter';
 const path = require("path");
 const fs = require("fs");
 
@@ -13,6 +14,7 @@ const packagePath = path.join(vscode.workspace.rootPath || rootPath, "package.js
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
 	CN2TW.init();
+	ENConverter.init();
 	if (fs.existsSync(packagePath)) {
 		let packageJSON = fs.readFileSync(packagePath, "utf8");
 		LeftMenus.init();
