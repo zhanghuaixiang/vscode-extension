@@ -25,16 +25,12 @@ let utils:{[key:string]: Function} = {
 	},
 	
 	/**
-	 * 获取指令和监听的文件
+	 * 获取启动脚本
 	 * 参数配置格式：
 	 * 第一种：
 	 * "rapidMenus": {
 	 *		"startup": {
-	 *			"script": "dev && test",
-	 *			"watch": {
-	 *				"link_script": "dev",
-	 *				"files": ["./test.js"]
-	 *			}
+	 *			"script": "dev && test"
 	 *		}
 	 *	}
 	 * 第二种：
@@ -43,30 +39,18 @@ let utils:{[key:string]: Function} = {
 	 *	}
 	 * @param menuName 指令名称
 	 * @param origin 
-	 * @returns {script:命令名称, watch:监听的文件}
+	 * @returns 脚本名称
 	 */
-	getScriptAndWatch (menuName:string, origin:{[key:string]: any}): {script:string, watch:any} {
+	getScript (menuName:string, origin:{[key:string]: any}):string {
 		if(!origin || !menuName) {
-			return {
-				script: "",
-				watch: null
-			};
+			return "";
 		}
 		if(typeof origin[menuName] === "string") {
-			return {
-				script: origin[menuName],
-				watch: null
-			};
+			return origin[menuName];
 		} else if (typeof origin[menuName] === "object") {
-			return {
-				script: origin[menuName].script,
-				watch: origin[menuName].watch
-			};
+			return origin[menuName].script || "";
 		}
-		return {
-			script: "",
-			watch: null
-		};
+		return "";
 	}
 };
 
@@ -87,22 +71,39 @@ export default class LeftMenus {
 	}
 	// 判断有没有配置快捷菜单，配置后才展示菜单项
 	static showCommand() {
-		// 判断路径是否存在
-		if(fs.existsSync(packagePath)) {
+		return !!LeftMenus.getRapidMenus();
+	}
+
+	/**
+	 * 获取快捷菜单配置
+	 * 优先从工作区 settings.json（VS Code 设置）读取，未配置时托底从 package.json 读取
+	 */
+	static getRapidMenus(): {[key:string]: any} | null {
+		// 优先从 settings.json 读取
+		const settingsMenus = vscode.workspace.getConfiguration().get('rapidMenus');
+		if (settingsMenus) {
+			return <{[key:string]: any}>settingsMenus;
+		}
+		// 托底：从 package.json 读取
+		if (fs.existsSync(packagePath)) {
 			const { rapidMenus } = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
 			if (rapidMenus) {
-				return true;
+				return rapidMenus;
 			}
 		}
-		return false;
+		return null;
 	}
 	// 菜单--启动
     static startup():void {
-		const packageJSON = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
-		// scripts：package.json中配置的命令；rapidMenu：package.json中配置的快捷菜单
-		const { scripts, rapidMenus } = packageJSON;
-		// 获取要执行的指令，和要监听的文件变更
-		const {script, watch} = utils.getScriptAndWatch("startup", rapidMenus);
+		// scripts：package.json中配置的命令；rapidMenus：快捷菜单配置（settings.json 优先，托底 package.json）
+		let scripts:{[key:string]: string} = {};
+		if(fs.existsSync(packagePath)) {
+			const packageJSON = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
+			scripts = packageJSON.scripts;
+		}
+		const rapidMenus = LeftMenus.getRapidMenus();
+		// 获取要执行的指令
+		const script = utils.getScript("startup", rapidMenus);
 		if(script) {
 			const scriptNames = utils.splitScripts(script);
 			scriptNames.forEach((name: string) => {
@@ -110,19 +111,6 @@ export default class LeftMenus {
 			});
 		} else {
 			vscode.window.showErrorMessage("配置格式不符合要求");
-		}
-		
-		if(watch) {
-			watch.files.forEach((filePath:string) => {
-				// 监听文件变更，如果发生改变，则终止相应终端并重新开启
-				fs.watch(path.join(packagePath, "../", filePath), () => {
-					const names = utils.splitScripts(watch.link_script);
-					names.forEach((n:string) => {
-						LeftMenus.shutdownTask(n);
-						LeftMenus.createTerminalAndExec(n, scripts);
-					});
-				});
-			});
 		}
     }
 

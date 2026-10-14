@@ -31,12 +31,8 @@ export default class ReadI18n {
             pattern: ReadI18n.i18nConf.validPath
         }, {
             async provideHover(document, position, token) {
-                const editor = vscode.window.activeTextEditor;
-                if (!editor) {
-                    return; 
-                }
-                const selectText = document.getText(editor.selection);
-                ReadI18n.selection = selectText.trim();
+                // 根据鼠标悬停位置提取key文本，无需先选中
+                ReadI18n.selection = ReadI18n.getWordAtPosition(document, position).trim();
                 ReadI18n.selection = ReadI18n.matchRegexOfSelection(/^"(.+)"$/);
                 ReadI18n.selection = ReadI18n.matchRegexOfSelection(/^'(.+)'$/);
                 ReadI18n.selection = ReadI18n.matchRegexOfSelection(/(.+)"$/);
@@ -71,6 +67,31 @@ export default class ReadI18n {
         } else {
             return ReadI18n.selection;
         }
+    }
+    /**
+     * 根据鼠标位置提取悬停处的key文本
+     * 优先取引号内的内容（如 i18n.t("key") 或 'key'），否则取该位置的单词
+     */
+    private static getWordAtPosition(document: vscode.TextDocument, position: vscode.Position):string {
+        // 优先获取当前行的文本，尝试匹配引号内的key
+        const lineText = document.lineAt(position.line).text;
+        const linePrefix = lineText.substring(0, position.character);
+        const matchResult = linePrefix.match(/(["'])([^"']*)$/);
+        if (matchResult) {
+            // 引号尚未闭合的情况：取引号后到鼠标位置的文本
+            return matchResult[2] || "";
+        }
+        // 没有引号时，提取悬停位置的完整key（支持点分key，如 common.submit）
+        const keyRegex = /[\w.$-]/;
+        let start = position.character;
+        let end = position.character;
+        while (start > 0 && keyRegex.test(lineText.charAt(start - 1))) {
+            start--;
+        }
+        while (end < lineText.length && keyRegex.test(lineText.charAt(end))) {
+            end++;
+        }
+        return lineText.substring(start, end);
     }
     static async setOriginData(fileName?:string, type?:string) {
         if(!ReadI18n.i18nConf?.cnPath && !ReadI18n.i18nConf?.enPath) {

@@ -15,9 +15,9 @@ const packagePath = path.join(vscode.workspace.rootPath || rootPath, "package.js
 export function activate(context: vscode.ExtensionContext) {
 	CN2TW.init();
 	ENConverter.init();
+	LeftMenus.init();
 	if (fs.existsSync(packagePath)) {
 		let packageJSON = fs.readFileSync(packagePath, "utf8");
-		LeftMenus.init();
 		ReadI18n.init(packageJSON);
 		// 监听package.json改变，改变后重新初始化指令
 		fs.watch(packagePath, ()=>{
@@ -28,6 +28,15 @@ export function activate(context: vscode.ExtensionContext) {
 			LeftMenus.init();
 		});
 	}
+	// 监听settings.json中的rapidMenus配置变化，变化后重新初始化指令
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
+		if (e.affectsConfiguration('rapidMenus')) {
+			LeftMenus.commands.forEach(command => {
+				command.dispose();
+			});
+			LeftMenus.init();
+		}
+	}));
 	
 }
 
