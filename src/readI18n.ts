@@ -21,6 +21,13 @@ export default class ReadI18n {
 
     static init() {
         const config = vscode.workspace.getConfiguration();
+        // 默认关闭，需显式开启；关闭时释放已有注册并清空数据
+        if (config.get<boolean>("I18n.enable") !== true) {
+            ReadI18n.dispose();
+            ReadI18n.langs = [];
+            ReadI18n.originData = {};
+            return;
+        }
         ReadI18n.langs = config.get<string[]>("I18n.langs") || [];
         ReadI18n.basePath = config.get<string>("I18n.basePath") || "";
         const validPath = config.get<string>("I18n.validPath") || "";

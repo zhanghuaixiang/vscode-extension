@@ -100,6 +100,11 @@
 					"default": "yunzhongzi",
 					"description": "大模型API模型"
 				},
+				"I18n.enable": {
+					"type": "boolean",
+					"default": false,
+					"description": "是否启用国际化悬浮提示功能（默认关闭）"
+				},
 				"I18n.langs": {
 					"type": "array",
 					"items": {
