@@ -1,241 +1,268 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import utils from './utils/utils';
-let path = require("path");
-let fs = require("fs");
 
-const rootPath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-const packagePath = path.join(vscode.workspace.rootPath || rootPath, "package.json");
+const taskTab = vscode.window.createOutputChannel("i18n-rapid");
 
-const taskTab =  vscode.window.createOutputChannel("i18n-rapid");
+type ORIGINDATA = {
+    cnData: { [key: string]: any },
+    enData: { [key: string]: any }
+};
+
+type LANGTYPE = "cn" | "en";
 
 export default class ReadI18n {
-    private static hover:any = null;
-    private static i18nConf:{[key:string]: any} = {};
-    private static selection:string = "";
-    private static originData:ORIGINDATA = {enData:{}, cnData:{}};
-    static init(packageJSON:string) {
-        let config = JSON.parse(packageJSON);
-        ReadI18n.i18nConf = config.i18nConfig;
+    private static hover: vscode.Disposable | null = null;
+    private static watchers: fs.FSWatcher[] = [];
+    private static i18nConf: { [key: string]: any } = {};
+    private static originData: ORIGINDATA = { cnData: {}, enData: {} };
+
+    static init(packageJSON: string) {
+        let config: any = null;
+        try {
+            config = JSON.parse(packageJSON);
+        } catch {
+            taskTab.appendLine("package.json 解析失败，跳过 i18n 初始化");
+            return;
+        }
+        ReadI18n.i18nConf = config?.i18nConfig || {};
         taskTab.appendLine("i18nConfig: " + JSON.stringify(ReadI18n.i18nConf));
 
+        // 支持重复调用（package.json 变化后重新初始化），先释放上一次的注册
+        ReadI18n.dispose();
         ReadI18n.bindEvent();
-        ReadI18n.setOriginData();
+        ReadI18n.reload();
     }
-    
-    static bindEvent():void {
-        if(!ReadI18n.i18nConf?.validPath) {
+
+    static bindEvent(): void {
+        const validPath = ReadI18n.i18nConf?.validPath;
+        if (validPath) {
+            // 注册气泡
+            ReadI18n.hover = vscode.languages.registerHoverProvider({ pattern: validPath }, {
+                provideHover(document, position) {
+                    const key = ReadI18n.resolveKey(document, position);
+                    const content = ReadI18n.getTexts(key);
+                    return content ? new vscode.Hover(content) : undefined;
+                }
+            });
+        }
+
+        const root = utils.getWorkspaceRoot();
+        if (!root) {
             return;
         }
-        // 注册气泡
-        ReadI18n.hover = vscode.languages.registerHoverProvider({
-            pattern: ReadI18n.i18nConf.validPath
-        }, {
-            async provideHover(document, position, token) {
-                // 根据鼠标悬停位置提取key文本，无需先选中
-                ReadI18n.selection = ReadI18n.getWordAtPosition(document, position).trim();
-                ReadI18n.selection = ReadI18n.matchRegexOfSelection(/^"(.+)"$/);
-                ReadI18n.selection = ReadI18n.matchRegexOfSelection(/^'(.+)'$/);
-                ReadI18n.selection = ReadI18n.matchRegexOfSelection(/(.+)"$/);
-                ReadI18n.selection = ReadI18n.matchRegexOfSelection(/(.+)'$/);
-                if(ReadI18n.selection.startsWith("'") || ReadI18n.selection.startsWith("\"")) {
-                    ReadI18n.selection = ReadI18n.selection.substring(1,);
-                }
-                
-                const text = await ReadI18n.getTexts();
-                return new vscode.Hover(<string>text);
-            }
-        });
-
-        const {cnPath, enPath} = ReadI18n.i18nConf;
-        cnPath && fs.watch(path.join(rootPath, cnPath), (type:string, fileName:string)=>{
-            utils.debounce(()=>{
-                ReadI18n.setOriginData(fileName, "cn");
-            }, 300);
-        });
-
-        enPath && fs.watch(path.join(rootPath, enPath), (type:string, fileName:string)=>{
-            utils.debounce(()=>{
-                ReadI18n.setOriginData(fileName, "en");
-            }, 300);
-        });
+        const { cnPath, enPath } = ReadI18n.i18nConf;
+        ReadI18n.watchDir(root, cnPath, "cn");
+        ReadI18n.watchDir(root, enPath, "en");
     }
 
-    private static matchRegexOfSelection (regex: RegExp):string {
-        if(ReadI18n.selection.match(regex)) {
-            const result = ReadI18n.selection.match(regex);
-            return result && result[1] || ReadI18n.selection;
-        } else {
-            return ReadI18n.selection;
+    /**
+     * 监听单个语言的国际化目录
+     * @param root 工作区根目录
+     * @param relPath 相对于根目录的路径，未配置时跳过
+     * @param type 语言类型
+     */
+    private static watchDir(root: string, relPath: string | undefined, type: LANGTYPE) {
+        if (!relPath) {
+            return;
+        }
+        const dir = path.join(root, relPath);
+        if (!fs.existsSync(dir)) {
+            taskTab.appendLine(`i18n 目录不存在，跳过监听: ${dir}`);
+            return;
+        }
+        try {
+            const watcher = fs.watch(dir, () => {
+                utils.debounce(() => ReadI18n.reload(type), 300, `i18n-${type}`);
+            });
+            ReadI18n.watchers.push(watcher);
+        } catch {
+            taskTab.appendLine(`i18n 目录监听失败: ${dir}`);
         }
     }
+
     /**
-     * 根据鼠标位置提取悬停处的key文本
-     * 优先取引号内的内容（如 i18n.t("key") 或 'key'），否则取该位置的单词
+     * 解析鼠标悬停位置对应的 i18n key
+     * 光标在引号内时取完整引号内容，否则取该位置的单词（支持点分 key）
      */
-    private static getWordAtPosition(document: vscode.TextDocument, position: vscode.Position):string {
-        // 优先获取当前行的文本，尝试匹配引号内的key
+    private static resolveKey(document: vscode.TextDocument, position: vscode.Position): string {
         const lineText = document.lineAt(position.line).text;
         const linePrefix = lineText.substring(0, position.character);
-        const matchResult = linePrefix.match(/(["'])([^"']*)$/);
-        if (matchResult) {
-            // 引号尚未闭合的情况：取引号后到鼠标位置的文本
-            return matchResult[2] || "";
+        const quoted = linePrefix.match(/(["'])([^"']*)$/);
+        let key: string;
+        if (quoted) {
+            // 光标位于引号内：向左右两侧扩展，取到闭合引号（或行尾）为止的完整内容
+            const start = position.character - quoted[2].length;
+            const close = lineText.indexOf(quoted[1], position.character);
+            key = lineText.substring(start, close === -1 ? lineText.length : close);
+        } else {
+            const keyChar = /[\w.$-]/;
+            let start = position.character;
+            let end = position.character;
+            while (start > 0 && keyChar.test(lineText.charAt(start - 1))) {
+                start--;
+            }
+            while (end < lineText.length && keyChar.test(lineText.charAt(end))) {
+                end++;
+            }
+            key = lineText.substring(start, end);
         }
-        // 没有引号时，提取悬停位置的完整key（支持点分key，如 common.submit）
-        const keyRegex = /[\w.$-]/;
-        let start = position.character;
-        let end = position.character;
-        while (start > 0 && keyRegex.test(lineText.charAt(start - 1))) {
-            start--;
-        }
-        while (end < lineText.length && keyRegex.test(lineText.charAt(end))) {
-            end++;
-        }
-        return lineText.substring(start, end);
+        return key.trim().replace(/^["']|["']$/g, "");
     }
-    static async setOriginData(fileName?:string, type?:string) {
-        if(!ReadI18n.i18nConf?.cnPath && !ReadI18n.i18nConf?.enPath) {
+
+    /**
+     * 重新加载国际化数据
+     * 始终整侧全量重载：增量合并无法感知文件中已被删除的 key
+     * @param type 触发重载的语言，不传则两侧都重载
+     */
+    static reload(type?: LANGTYPE) {
+        const root = utils.getWorkspaceRoot();
+        const { cnPath, enPath } = ReadI18n.i18nConf;
+        if (!root || (!cnPath && !enPath)) {
             return;
         }
-        const {cnPath, enPath} = ReadI18n.i18nConf;
-        var fileNameCn:string = "", fileNameEn:string = "";
-        if(type === "cn") {
-            fileNameCn = <string>fileName;
-        }else if(type === "en") {
-            fileNameEn = <string>fileName;
-        }
-        let cnData = await ReadI18n.getData(path.join(rootPath, cnPath), fileNameCn, "cn");
-        let enData = await ReadI18n.getData(path.join(rootPath, enPath), fileNameEn, "en");
+        const shouldReloadCn = !type || type === "cn";
+        const shouldReloadEn = !type || type === "en";
         ReadI18n.originData = {
-            cnData,
-            enData
+            cnData: shouldReloadCn && cnPath ? ReadI18n.readDir(path.join(root, cnPath)) : ReadI18n.originData.cnData,
+            enData: shouldReloadEn && enPath ? ReadI18n.readDir(path.join(root, enPath)) : ReadI18n.originData.enData
         };
     }
-    // 遍历文件获取数据
-    static getData(dir:string, fileName:string, flag:string) {
-        return new Promise((resolve, reject)=>{
-            if(fileName) {
-                const { cnData, enData } = ReadI18n.originData;
-                let dataTemp = flag === "cn" ? cnData : enData;
-                let filePath = path.join(dir, fileName);
-                ReadI18n.analyzeFileContent(filePath, fileName, (data:{[key:string]:any}) => {
-                    Object.assign(dataTemp, data);
-                });
-            }else{
-                let dataTemp = {};
-                fs.readdir(dir, (error:any, files:[])=>{
-                    if(error) {
-                        reject(error);
-                        return;
-                    }
-                    files.forEach(async (name:string) => {
-                        const filePath = path.join(dir, name);
-                        ReadI18n.analyzeFileContent(filePath, name, (data:{[key:string]:any}) => {
-                            Object.assign(dataTemp, data);
-                        });
-                    });
-                    resolve(dataTemp);
-                });
-            }
-            
-        });
-    }
+
     /**
-     * 解析文件内容，解析成JSON
-     * @param filePath 文件路径
-     * @param fileName 文件名称，用于记录异常情况
-     * @param cb 回调函数，将JSON数据回调给上方
+     * 遍历目录，汇总其中所有文件的国际化数据
      */
-    private static analyzeFileContent(filePath:string, fileName:string, cb:Function) {
-        let tempData = fs.readFileSync(filePath, "utf8");
-        // 替换换行符
-        tempData = 
-            tempData.replace(/(\/\*.+\*\/)/g, "")
-            .replace(/\s\/\/.+\r\n/g, "")
-            .replace(/\n/g, "")
-            .replace(/\r/g, "")
-            .replace(/<img.+?\/(?:img)?>/g, "");
-        const matchData = tempData.match(/{(.*)}/)[0];
-        const matchDataTrim = matchData.trim();
-        const matchDefault = matchDataTrim.match(/(.+)export\s+default\s+\{(.+)\};?$/);
-        // 兼容 export default {xxx}写法
-        if(matchDefault) {
-            let transferData = matchDefault[1];
-            transferData = transferData.endsWith(";")?transferData.substring(0, transferData.length-1):transferData;
-            const str = matchDefault[2];
-            try {
-                const data = eval(`({${str.trim()}:${transferData}})`);
-                // const data = new Function(`return {${str.trim()}:${transferData}}`).apply(null);
-                cb(data);
-            } catch (error) {
-                taskTab.appendLine(fileName + " in exception");
-                return;
-            }
-        }else{
-            try {
-                // eval函数加括号会有返回值
-                const data = eval(`(${matchData})`);
-                // const data = new Function(`return ${matchData}`).apply(null);
-                cb(data);
-            } catch (error) {
-                taskTab.appendLine(fileName + " in exception");
-                return;
+    private static readDir(dir: string): { [key: string]: any } {
+        const result: { [key: string]: any } = {};
+        let names: string[];
+        try {
+            names = fs.readdirSync(dir);
+        } catch {
+            taskTab.appendLine(`目录读取失败: ${dir}`);
+            return result;
+        }
+        for (const name of names) {
+            const data = ReadI18n.analyzeFileContent(path.join(dir, name), name);
+            if (data) {
+                Object.assign(result, data);
             }
         }
-        taskTab.appendLine(`${filePath} read over;`);
+        return result;
     }
-    static getTexts () {
-        return new Promise((resolve, reject) => {
-            const selection =  ReadI18n.selection;
-            const selections = selection.split(".");
-            // 深copy国际化源数据
-            let tempData = JSON.parse(JSON.stringify(ReadI18n.originData));
-            // 将选中的字符串以.进行拆分，拆分后遍历
-            for (let i = 0; i < selections.length; i++) {
-                // 获取key值
-                const key = selections[i];
-                const item = tempData['cnData'][key];
-                if(item) {
-                    if(typeof item === "string") {
-                        const cnT = tempData['cnData'][key];
-                        const enT = tempData['enData'][key];
-                        const markdownString = new vscode.MarkdownString();
-                        markdownString.appendMarkdown(
-                            "### i18n"
-                        );
-                        markdownString.appendMarkdown(
-                            `\n\n --- \n\n 【**中**】 ${cnT}`
-                        );
-                        markdownString.appendMarkdown(
-                            `\n\n --- \n\n 【**英**】 ${enT}`
-                        );
-                        tempData = markdownString;
-                    }else{
-                        tempData = {
-                            cnData: tempData['cnData'][key],
-                            enData: tempData['enData'][key]
-                        };
-                    }
-                } else {
-                    reject(null);
-                }
+
+    /**
+     * 解析文件内容为对象，失败返回 null
+     * @param filePath 文件路径
+     * @param fileName 文件名称，用于记录异常情况
+     */
+    private static analyzeFileContent(filePath: string, fileName: string): { [key: string]: any } | null {
+        let tempData: string;
+        try {
+            // 跳过子目录、已删除文件，避免抛出未捕获异常
+            if (!fs.statSync(filePath).isFile()) {
+                return null;
             }
-            
-            resolve(tempData);
-        }).catch(()=>{
-            ReadI18n.selection = "";
-        });
+            tempData = fs.readFileSync(filePath, "utf8");
+        } catch {
+            taskTab.appendLine(`${fileName} 读取失败`);
+            return null;
+        }
+
+        // 替换换行符
+        tempData =
+            tempData.replace(/(\/\*.+\*\/)/g, "")
+                .replace(/\s\/\/.+\r\n/g, "")
+                .replace(/\n/g, "")
+                .replace(/\r/g, "")
+                .replace(/<img.+?\/(?:img)?>/g, "");
+
+        const matched = tempData.match(/{(.*)}/);
+        if (!matched) {
+            taskTab.appendLine(`${fileName} 未匹配到有效内容`);
+            return null;
+        }
+
+        const matchDataTrim = matched[0].trim();
+        // 兼容 export default {xxx} 写法
+        const matchDefault = matchDataTrim.match(/(.+)export\s+default\s+\{(.+)\};?$/);
+        let source = matchDataTrim;
+        if (matchDefault) {
+            let transferData = matchDefault[1];
+            transferData = transferData.endsWith(";") ? transferData.substring(0, transferData.length - 1) : transferData;
+            source = `{${matchDefault[2].trim()}:${transferData}}`;
+        }
+
+        const data = ReadI18n.parseObject(source, fileName);
+        if (data) {
+            taskTab.appendLine(`${filePath} read over;`);
+        }
+        return data;
     }
-    // 销毁hover实例
-    private static disposeHover() {
-        if(ReadI18n.hover) {
+
+    /**
+     * 将源码字符串解析为对象
+     * 优先按纯 JSON 解析；仅在受信任的工作区中，才对 JS 模块写法降级求值
+     */
+    private static parseObject(source: string, fileName: string): { [key: string]: any } | null {
+        try {
+            return JSON.parse(source);
+        } catch {
+            // 含注释、尾逗号或变量引用，无法按 JSON 解析
+        }
+        if (!vscode.workspace.isTrusted) {
+            taskTab.appendLine(`${fileName} 需要在受信任的工作区中才能解析`);
+            return null;
+        }
+        try {
+            return new Function(`return (${source});`)();
+        } catch {
+            taskTab.appendLine(`${fileName} in exception`);
+            return null;
+        }
+    }
+
+    /**
+     * 根据 key 生成悬停提示内容，未命中时返回 undefined
+     */
+    static getTexts(key: string): vscode.MarkdownString | undefined {
+        if (!key) {
+            return undefined;
+        }
+        let cn: any = ReadI18n.originData.cnData;
+        let en: any = ReadI18n.originData.enData;
+        for (const segment of key.split(".")) {
+            if (!cn || typeof cn !== "object" || !(segment in cn)) {
+                return undefined;
+            }
+            cn = cn[segment];
+            en = en && typeof en === "object" ? en[segment] : undefined;
+        }
+        if (typeof cn !== "string") {
+            return undefined;
+        }
+        const markdownString = new vscode.MarkdownString();
+        markdownString.appendMarkdown("### i18n");
+        markdownString.appendMarkdown(`\n\n --- \n\n 【**中**】 ${cn}`);
+        markdownString.appendMarkdown(`\n\n --- \n\n 【**英**】 ${typeof en === "string" ? en : ""}`);
+        return markdownString;
+    }
+
+    /**
+     * 释放 hover 实例与文件监听
+     */
+    static dispose() {
+        if (ReadI18n.hover) {
             ReadI18n.hover.dispose();
             ReadI18n.hover = null;
         }
+        ReadI18n.watchers.forEach(watcher => {
+            try {
+                watcher.close();
+            } catch {
+                // 忽略重复关闭
+            }
+        });
+        ReadI18n.watchers = [];
     }
 }
-
-type ORIGINDATA = {
-    cnData: any,
-    enData: any
-};

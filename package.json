@@ -7,15 +7,13 @@
 	"icon": "images/icon.png",
 	"repository": "https://github.com/zhanghuaixiang/vscode-extension.git",
 	"engines": {
-		"vscode": "^1.44.0"
+		"vscode": "^1.57.0"
 	},
 	"categories": [
 		"Other"
 	],
 	"activationEvents": [
-		"onCommand:startup",
-		"onCommand:shutdown.task",
-		"*"
+		"onStartupFinished"
 	],
 	"main": "./dist/extension.js",
 	"contributes": {
@@ -27,7 +25,9 @@
 					"when": "condition.showRapidMenu"
 				},
 				{
-					"command": "shutdown.task"
+					"command": "shutdown.task",
+					"group": "navigation",
+					"when": "condition.showRapidMenu"
 				}
 			],
 			"editor/context": [
@@ -87,7 +87,7 @@
 				},
 				"Converter.enUrl": {
 					"type": "string",
-					"default": "http://10.49.38.178:8888/v1/chat/completions",
+					"default": "",
 					"description": "大模型API接口"
 				},
 				"Converter.enLabel": {
@@ -119,7 +119,7 @@
 		"@types/glob": "^7.2.0",
 		"@types/mocha": "^9.1.0",
 		"@types/node": "14.x",
-		"@types/vscode": "^1.44.0",
+		"@types/vscode": "^1.57.0",
 		"@types/webpack-env": "^1.17.0",
 		"@typescript-eslint/eslint-plugin": "^5.12.1",
 		"@typescript-eslint/parser": "^5.12.1",
