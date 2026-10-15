@@ -59,8 +59,6 @@ export default class LeftMenus {
 			vscode.commands.executeCommand("setContext", "condition.showRapidMenu", true);
 			// 启动服务
 			LeftMenus.commands.push(vscode.commands.registerCommand("startup", LeftMenus.startup));
-			// 终止终端指令
-			LeftMenus.commands.push(vscode.commands.registerCommand("shutdown.task", LeftMenus.shutdownTask));
 		} else {
 			vscode.commands.executeCommand("setContext", "condition.showRapidMenu", false);
 		}
@@ -118,31 +116,5 @@ export default class LeftMenus {
 		shell.show(true);
 		shell.sendText(`npm run ${name}`);
 		vscode.window.showInformationMessage(`终端【${name}】正在运行...`);
-	}
-
-	/**
-	 * 终止终端指令
-	 * @param name 要终止的指令名称；从资源管理器菜单调用时传入的是 Uri，此时提示用户输入
-	 */
-	static shutdownTask(name?: string) {
-		if (typeof name === "string" && name) {
-			LeftMenus.disposeTerminals([name]);
-		} else {
-			vscode.window.showInputBox({ placeHolder: "请输入要中止的任务名称" }).then(result => {
-				LeftMenus.disposeTerminals(<string[]>menuUtils.splitScripts(result || ""));
-			});
-		}
-	}
-
-	// 关闭名称匹配的终端
-	private static disposeTerminals(names: string[]) {
-		if (!names.length) {
-			return;
-		}
-		vscode.window.terminals.forEach(item => {
-			if (names.includes(item.name)) {
-				item.dispose();
-			}
-		});
 	}
 }

@@ -14,10 +14,29 @@ export default class Cn2Tw {
         "traditional": "tw"
     };
     static init(subscriptions: vscode.Disposable[]) {
+        Cn2Tw.updateContext();
+        // 配置变化时同步菜单/命令面板的可用状态
+        subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration('Converter.ctEnable')) {
+                Cn2Tw.updateContext();
+            }
+        }));
         subscriptions.push(
             vscode.commands.registerCommand('opencc.cn2tw', () => Cn2Tw.convert('cn', Cn2Tw.getTargetDict())),
             vscode.commands.registerCommand('opencc.tw2cn', () => Cn2Tw.convert(Cn2Tw.getTargetDict(), 'cn'))
         );
+    }
+    /**
+     * 简繁转换是否启用（默认关闭）
+     */
+    private static isEnabled(): boolean {
+        return vscode.workspace.getConfiguration().get<boolean>('Converter.ctEnable') === true;
+    }
+    /**
+     * 同步 condition.showCn2Tw 上下文，控制右键菜单与命令面板的展示
+     */
+    private static updateContext() {
+        vscode.commands.executeCommand("setContext", "condition.showCn2Tw", Cn2Tw.isEnabled());
     }
     /**
      * 读取用户配置的繁体类型，未配置或取值非法时回退到 tw
@@ -27,6 +46,10 @@ export default class Cn2Tw {
         return Cn2Tw.dictType[type || ""] || Cn2Tw.dictType["tw"];
     }
     private static convert(from: string, to: string) {
+        if (!Cn2Tw.isEnabled()) {
+            vscode.window.showInformationMessage("简繁体转换功能未启用，请在设置中开启 Converter.ctEnable");
+            return;
+        }
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             return;

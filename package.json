@@ -23,23 +23,20 @@
 					"command": "startup",
 					"group": "navigation",
 					"when": "condition.showRapidMenu"
-				},
-				{
-					"command": "shutdown.task",
-					"group": "navigation",
-					"when": "condition.showRapidMenu"
 				}
 			],
 			"editor/context": [
 				{
 					"command": "opencc.tw2cn",
 					"title": "繁体转简体",
-					"group": "navigation@0"
+					"group": "navigation@0",
+					"when": "condition.showCn2Tw"
 				},
 				{
 					"command": "opencc.cn2tw",
 					"title": "简体转繁体",
-					"group": "navigation@0"
+					"group": "navigation@0",
+					"when": "condition.showCn2Tw"
 				},
 				{
 					"command": "opencc.cn2en",
@@ -51,20 +48,18 @@
 		},
 		"commands": [
 			{
-				"command": "shutdown.task",
-				"title": "终止终端进程"
-			},
-			{
 				"command": "startup",
 				"title": "启动"
 			},
 			{
 				"command": "opencc.tw2cn",
-				"title": "[ICS] 繁体 => 简体"
+				"title": "[ICS] 繁体 => 简体",
+				"enablement": "condition.showCn2Tw"
 			},
 			{
 				"command": "opencc.cn2tw",
-				"title": "[ICS] 简体 => 繁体"
+				"title": "[ICS] 简体 => 繁体",
+				"enablement": "condition.showCn2Tw"
 			},
 			{
 				"command": "opencc.cn2en",
@@ -75,6 +70,11 @@
 			"type": "object",
 			"title": "文本转换工具",
 			"properties": {
+				"Converter.ctEnable": {
+					"type": "boolean",
+					"default": false,
+					"description": "是否启用简繁体转换功能（默认关闭）"
+				},
 				"Converter.ctType": {
 					"type": "string",
 					"default": "tw",
