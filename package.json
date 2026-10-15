@@ -99,6 +99,32 @@
 					"type": "string",
 					"default": "yunzhongzi",
 					"description": "大模型API模型"
+				},
+				"I18n.langs": {
+					"type": "array",
+					"items": {
+						"type": "string",
+						"enum": [
+							"cn",
+							"en",
+							"tw"
+						]
+					},
+					"default": [
+						"cn",
+						"en"
+					],
+					"description": "启用的国际化语言标识，语言目录为 基础路径/标识；第一个语言作为悬停提示的基准语言"
+				},
+				"I18n.basePath": {
+					"type": "string",
+					"default": "src/i18n",
+					"description": "国际化文件基础目录（相对工作区根目录）"
+				},
+				"I18n.validPath": {
+					"type": "string",
+					"default": "**/src/**",
+					"description": "启用国际化悬停提示的文件 glob 模式，留空则不启用悬停提示"
 				}
 			}
 		}

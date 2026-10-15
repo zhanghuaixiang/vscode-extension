@@ -14,13 +14,12 @@ export function activate(context: vscode.ExtensionContext) {
 	ENConverter.init(context.subscriptions);
 	LeftMenus.init();
 
-	// 路径求值放在 activate 内并加守卫，避免无工作区窗口下模块加载即崩溃
+	// i18n 配置来自 settings.json，不再依赖 package.json
+	ReadI18n.init();
+	context.subscriptions.push({ dispose: () => ReadI18n.dispose() });
+
 	const packagePath = utils.getPackageJsonPath();
 	if (packagePath && fs.existsSync(packagePath)) {
-		const packageJSON = fs.readFileSync(packagePath, "utf8");
-		ReadI18n.init(packageJSON);
-		context.subscriptions.push({ dispose: () => ReadI18n.dispose() });
-
 		// 监听package.json改变，改变后重新初始化指令
 		try {
 			const watcher = fs.watch(packagePath, () => {
@@ -36,10 +35,13 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	}
 
-	// 监听settings.json中的rapidMenus配置变化，变化后重新初始化指令
+	// 监听settings.json配置变化，变化后重新初始化对应功能
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
 		if (e.affectsConfiguration('rapidMenus')) {
 			LeftMenus.init();
+		}
+		if (e.affectsConfiguration('I18n')) {
+			ReadI18n.init();
 		}
 	}));
 }

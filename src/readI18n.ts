@@ -5,38 +5,34 @@ import utils from './utils/utils';
 
 const taskTab = vscode.window.createOutputChannel("i18n-rapid");
 
-type ORIGINDATA = {
-    cnData: { [key: string]: any },
-    enData: { [key: string]: any }
+// 语言标识对应的悬停展示名，未收录的标识直接展示原文
+const LANG_LABELS: { [lang: string]: string } = {
+    cn: "中",
+    en: "英",
+    tw: "繁"
 };
-
-type LANGTYPE = "cn" | "en";
 
 export default class ReadI18n {
     private static hover: vscode.Disposable | null = null;
     private static watchers: fs.FSWatcher[] = [];
-    private static i18nConf: { [key: string]: any } = {};
-    private static originData: ORIGINDATA = { cnData: {}, enData: {} };
+    private static langs: string[] = [];
+    private static basePath = "";
+    private static originData: { [lang: string]: { [key: string]: any } } = {};
 
-    static init(packageJSON: string) {
-        let config: any = null;
-        try {
-            config = JSON.parse(packageJSON);
-        } catch {
-            taskTab.appendLine("package.json 解析失败，跳过 i18n 初始化");
-            return;
-        }
-        ReadI18n.i18nConf = config?.i18nConfig || {};
-        taskTab.appendLine("i18nConfig: " + JSON.stringify(ReadI18n.i18nConf));
+    static init() {
+        const config = vscode.workspace.getConfiguration();
+        ReadI18n.langs = config.get<string[]>("I18n.langs") || [];
+        ReadI18n.basePath = config.get<string>("I18n.basePath") || "";
+        const validPath = config.get<string>("I18n.validPath") || "";
+        taskTab.appendLine(`i18n 配置: langs=[${ReadI18n.langs.join(",")}], basePath=${ReadI18n.basePath}, validPath=${validPath}`);
 
-        // 支持重复调用（package.json 变化后重新初始化），先释放上一次的注册
+        // 支持重复调用（settings 变化后重新初始化），先释放上一次的注册
         ReadI18n.dispose();
-        ReadI18n.bindEvent();
+        ReadI18n.bindEvent(validPath);
         ReadI18n.reload();
     }
 
-    static bindEvent(): void {
-        const validPath = ReadI18n.i18nConf?.validPath;
+    static bindEvent(validPath: string): void {
         if (validPath) {
             // 注册气泡
             ReadI18n.hover = vscode.languages.registerHoverProvider({ pattern: validPath }, {
@@ -52,29 +48,25 @@ export default class ReadI18n {
         if (!root) {
             return;
         }
-        const { cnPath, enPath } = ReadI18n.i18nConf;
-        ReadI18n.watchDir(root, cnPath, "cn");
-        ReadI18n.watchDir(root, enPath, "en");
+        for (const lang of ReadI18n.langs) {
+            ReadI18n.watchDir(root, lang);
+        }
     }
 
     /**
-     * 监听单个语言的国际化目录
+     * 监听单个语言的国际化目录（basePath/语言标识）
      * @param root 工作区根目录
-     * @param relPath 相对于根目录的路径，未配置时跳过
-     * @param type 语言类型
+     * @param lang 语言标识
      */
-    private static watchDir(root: string, relPath: string | undefined, type: LANGTYPE) {
-        if (!relPath) {
-            return;
-        }
-        const dir = path.join(root, relPath);
+    private static watchDir(root: string, lang: string) {
+        const dir = path.join(root, ReadI18n.basePath, lang);
         if (!fs.existsSync(dir)) {
             taskTab.appendLine(`i18n 目录不存在，跳过监听: ${dir}`);
             return;
         }
         try {
             const watcher = fs.watch(dir, () => {
-                utils.debounce(() => ReadI18n.reload(type), 300, `i18n-${type}`);
+                utils.debounce(() => ReadI18n.reload(lang), 300, `i18n-${lang}`);
             });
             ReadI18n.watchers.push(watcher);
         } catch {
@@ -114,20 +106,20 @@ export default class ReadI18n {
     /**
      * 重新加载国际化数据
      * 始终整侧全量重载：增量合并无法感知文件中已被删除的 key
-     * @param type 触发重载的语言，不传则两侧都重载
+     * @param lang 触发重载的语言标识，不传则全部重载
      */
-    static reload(type?: LANGTYPE) {
+    static reload(lang?: string) {
         const root = utils.getWorkspaceRoot();
-        const { cnPath, enPath } = ReadI18n.i18nConf;
-        if (!root || (!cnPath && !enPath)) {
+        if (!root || !ReadI18n.langs.length || !ReadI18n.basePath) {
             return;
         }
-        const shouldReloadCn = !type || type === "cn";
-        const shouldReloadEn = !type || type === "en";
-        ReadI18n.originData = {
-            cnData: shouldReloadCn && cnPath ? ReadI18n.readDir(path.join(root, cnPath)) : ReadI18n.originData.cnData,
-            enData: shouldReloadEn && enPath ? ReadI18n.readDir(path.join(root, enPath)) : ReadI18n.originData.enData
-        };
+        const next: { [lang: string]: { [key: string]: any } } = {};
+        for (const item of ReadI18n.langs) {
+            next[item] = !lang || lang === item
+                ? ReadI18n.readDir(path.join(root, ReadI18n.basePath, item))
+                : ReadI18n.originData[item] || {};
+        }
+        ReadI18n.originData = next;
     }
 
     /**
@@ -224,27 +216,36 @@ export default class ReadI18n {
 
     /**
      * 根据 key 生成悬停提示内容，未命中时返回 undefined
+     * 以配置的第一个语言为基准，key 必须存在于基准语言中
      */
     static getTexts(key: string): vscode.MarkdownString | undefined {
-        if (!key) {
+        if (!key || !ReadI18n.langs.length) {
             return undefined;
         }
-        let cn: any = ReadI18n.originData.cnData;
-        let en: any = ReadI18n.originData.enData;
+        const primary = ReadI18n.langs[0];
+        const values: { [lang: string]: any } = {};
+        for (const lang of ReadI18n.langs) {
+            values[lang] = ReadI18n.originData[lang];
+        }
         for (const segment of key.split(".")) {
-            if (!cn || typeof cn !== "object" || !(segment in cn)) {
+            const cur = values[primary];
+            if (!cur || typeof cur !== "object" || !(segment in cur)) {
                 return undefined;
             }
-            cn = cn[segment];
-            en = en && typeof en === "object" ? en[segment] : undefined;
+            for (const lang of ReadI18n.langs) {
+                values[lang] = values[lang] && typeof values[lang] === "object" ? values[lang][segment] : undefined;
+            }
         }
-        if (typeof cn !== "string") {
+        if (typeof values[primary] !== "string") {
             return undefined;
         }
         const markdownString = new vscode.MarkdownString();
         markdownString.appendMarkdown("### i18n");
-        markdownString.appendMarkdown(`\n\n --- \n\n 【**中**】 ${cn}`);
-        markdownString.appendMarkdown(`\n\n --- \n\n 【**英**】 ${typeof en === "string" ? en : ""}`);
+        for (const lang of ReadI18n.langs) {
+            const label = LANG_LABELS[lang] || lang;
+            const value = typeof values[lang] === "string" ? values[lang] : "";
+            markdownString.appendMarkdown(`\n\n --- \n\n 【**${label}**】 ${value}`);
+        }
         return markdownString;
     }
 
