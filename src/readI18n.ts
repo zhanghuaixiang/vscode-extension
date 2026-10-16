@@ -156,40 +156,22 @@ export default class ReadI18n {
      * @param fileName 文件名称，用于记录异常情况
      */
     private static analyzeFileContent(filePath: string, fileName: string): { [key: string]: any } | null {
-        let tempData: string;
+        let raw: string;
         try {
             // 跳过子目录、已删除文件，避免抛出未捕获异常
             if (!fs.statSync(filePath).isFile()) {
                 return null;
             }
-            tempData = fs.readFileSync(filePath, "utf8");
+            raw = fs.readFileSync(filePath, "utf8");
         } catch {
             taskTab.appendLine(`${fileName} 读取失败`);
             return null;
         }
 
-        // 替换换行符
-        tempData =
-            tempData.replace(/(\/\*.+\*\/)/g, "")
-                .replace(/\s\/\/.+\r\n/g, "")
-                .replace(/\n/g, "")
-                .replace(/\r/g, "")
-                .replace(/<img.+?\/(?:img)?>/g, "");
-
-        const matched = tempData.match(/{(.*)}/);
-        if (!matched) {
+        const source = ReadI18n.extractObjectSource(raw);
+        if (!source) {
             taskTab.appendLine(`${fileName} 未匹配到有效内容`);
             return null;
-        }
-
-        const matchDataTrim = matched[0].trim();
-        // 兼容 export default {xxx} 写法
-        const matchDefault = matchDataTrim.match(/(.+)export\s+default\s+\{(.+)\};?$/);
-        let source = matchDataTrim;
-        if (matchDefault) {
-            let transferData = matchDefault[1];
-            transferData = transferData.endsWith(";") ? transferData.substring(0, transferData.length - 1) : transferData;
-            source = `{${matchDefault[2].trim()}:${transferData}}`;
         }
 
         const data = ReadI18n.parseObject(source, fileName);
@@ -197,6 +179,70 @@ export default class ReadI18n {
             taskTab.appendLine(`${filePath} read over;`);
         }
         return data;
+    }
+
+    /**
+     * 从模块源码中提取国际化对象字面量（含首尾花括号）
+     * 通过花括号深度扫描定位，扫描过程会跳过字符串、模板字符串与注释，
+     * 因此文案里的 // 、/* 以及文件顶部的 import { x } 都不会造成误判；
+     * 同时不再预处理换行符，兼容 LF 与 CRLF 两种行尾
+     */
+    private static extractObjectSource(raw: string): string | null {
+        const text = raw.replace(/^\uFEFF/, "");
+        // 优先从 export default / module.exports = 之后找对象起始，避免误取 import 解构的花括号
+        const anchor = /export\s+default\s*|module\.exports\s*=\s*/.exec(text);
+        const start = text.indexOf("{", anchor ? anchor.index + anchor[0].length : 0);
+        if (start === -1) {
+            return null;
+        }
+        const end = ReadI18n.findObjectEnd(text, start);
+        if (end === -1) {
+            return null;
+        }
+        // 去掉文案中的 <img> 标记，避免悬停时展示无用标签
+        return text.substring(start, end + 1).replace(/<img.+?\/(?:img)?>/g, "");
+    }
+
+    /**
+     * 从 start 处的 { 起做深度扫描，返回与之配对的 } 下标；未闭合时返回 -1
+     */
+    private static findObjectEnd(text: string, start: number): number {
+        let depth = 0;
+        let quote = "";
+        for (let i = start; i < text.length; i++) {
+            const ch = text.charAt(i);
+            if (quote) {
+                if (ch === "\\") {
+                    i++;
+                } else if (ch === quote) {
+                    quote = "";
+                }
+                continue;
+            }
+            if (ch === '"' || ch === "'" || ch === "`") {
+                quote = ch;
+            } else if (ch === "/" && text.charAt(i + 1) === "/") {
+                const nl = text.indexOf("\n", i);
+                if (nl === -1) {
+                    return -1;
+                }
+                i = nl;
+            } else if (ch === "/" && text.charAt(i + 1) === "*") {
+                const close = text.indexOf("*/", i + 2);
+                if (close === -1) {
+                    return -1;
+                }
+                i = close + 1;
+            } else if (ch === "{") {
+                depth++;
+            } else if (ch === "}") {
+                depth--;
+                if (depth === 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
     }
 
     /**
@@ -251,7 +297,9 @@ export default class ReadI18n {
         for (const lang of ReadI18n.langs) {
             const label = LANG_LABELS[lang] || lang;
             const value = typeof values[lang] === "string" ? values[lang] : "";
-            markdownString.appendMarkdown(`\n\n --- \n\n 【**${label}**】 ${value}`);
+            // 文案按纯文本追加，避免其中的 *#[]` 等字符被当成 Markdown 语法渲染
+            markdownString.appendMarkdown(`\n\n --- \n\n 【**${label}**】 `);
+            markdownString.appendText(value);
         }
         return markdownString;
     }

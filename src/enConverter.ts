@@ -1,5 +1,17 @@
 import * as vscode from "vscode";
-import axios from "axios";
+
+// 大模型对话接口的请求/响应结构（OpenAI 兼容格式）
+interface ChatMessage {
+    role: string;
+    content: string;
+}
+
+interface ChatCompletion {
+    choices?: { message?: ChatMessage }[];
+}
+
+// 请求超时（毫秒），避免网络异常时命令长时间无响应
+const REQUEST_TIMEOUT = 60_000;
 
 export default class ENConverter {
     // 记录上一次菜单展示状态，避免每次选区变化都高频调用 setContext
@@ -77,21 +89,28 @@ export default class ENConverter {
             ]
         };
         try {
-            const response = await axios.post(<string>url, requestData, {
+            // 使用扩展宿主内置的 fetch（Node 18+），避免引入会访问全局 navigator 的第三方 HTTP 库
+            const response = await fetch(<string>url, {
+                method: "POST",
                 headers: {
                     "Content-Type": "application/json"
-                }
+                },
+                body: JSON.stringify(requestData),
+                signal: AbortSignal.timeout(REQUEST_TIMEOUT)
             });
-            const content: string = response?.data?.choices?.[0]?.message?.content ?? "";
-            return ENConverter.stripFences(content.trim());
-        } catch (error: any) {
-            // error.response 在网络错误（超时/DNS/拒绝连接）时为 undefined，需分类处理
-            if (error?.response) {
-                const data = error.response.data;
-                vscode.window.showErrorMessage("enConverter 接口错误: " + (typeof data === "string" ? data : JSON.stringify(data)));
-            } else {
-                vscode.window.showErrorMessage("enConverter 网络错误，请检查 enUrl 配置或网络连通性");
+            if (!response.ok) {
+                const detail = await response.text().catch(() => "");
+                vscode.window.showErrorMessage(`enConverter 接口错误: ${response.status} ${response.statusText}${detail ? " " + detail : ""}`);
+                return "";
             }
+            const data = <ChatCompletion>await response.json();
+            const content: string = data?.choices?.[0]?.message?.content ?? "";
+            return ENConverter.stripFences(content.trim());
+        } catch (error) {
+            const timedOut = error instanceof Error && error.name === "TimeoutError";
+            vscode.window.showErrorMessage(timedOut
+                ? `enConverter 请求超时（${REQUEST_TIMEOUT / 1000}s），请检查网络或接口可用性`
+                : "enConverter 网络错误，请检查 enUrl 配置或网络连通性");
             return "";
         }
     }

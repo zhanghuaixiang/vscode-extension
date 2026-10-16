@@ -1,14 +1,13 @@
 import * as vscode from "vscode";
-import { performance } from "node:perf_hooks";
-
-const opencc = require("opencc-js");
+import { Converter } from "opencc-js";
+import type { Locale } from "opencc-js";
 
 // 中日韩统一表意文字（含扩展 A 与兼容表意文字）
 const CJK_TEST = /[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]/;
 const CJK_REPLACE = /[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]+/g;
 
 export default class Cn2Tw {
-    static dictType: { [key: string]: string } = {
+    static dictType: { [key: string]: Locale } = {
         "hk": "hk",
         "tw": "twp",
         "traditional": "tw"
@@ -41,11 +40,11 @@ export default class Cn2Tw {
     /**
      * 读取用户配置的繁体类型，未配置或取值非法时回退到 tw
      */
-    private static getTargetDict(): string {
+    private static getTargetDict(): Locale {
         const type = vscode.workspace.getConfiguration().get<string>('Converter.ctType');
         return Cn2Tw.dictType[type || ""] || Cn2Tw.dictType["tw"];
     }
-    private static convert(from: string, to: string) {
+    private static convert(from: Locale, to: Locale) {
         if (!Cn2Tw.isEnabled()) {
             vscode.window.showInformationMessage("简繁体转换功能未启用，请在设置中开启 Converter.ctEnable");
             return;
@@ -61,13 +60,13 @@ export default class Cn2Tw {
             : editor.selections.slice();
         Cn2Tw.translateRange(editor, ranges, from, to);
     }
-    static async translateRange(editor: vscode.TextEditor, ranges: vscode.Range[], from: string, to: string) {
+    static async translateRange(editor: vscode.TextEditor, ranges: vscode.Range[], from: Locale, to: Locale) {
         await vscode.window.withProgress({
             title: '简繁字体转换中...',
             location: vscode.ProgressLocation.Notification,
             cancellable: true
         }, async (_progress, token) => {
-            const converter = opencc.Converter({ from: from, to: to });
+            const converter = Converter({ from, to });
             for (const range of ranges) {
                 if (token.isCancellationRequested) {
                     break;
@@ -76,10 +75,10 @@ export default class Cn2Tw {
                 await new Promise(resolve => setTimeout(resolve));
                 const text = editor.document.getText(range);
                 const segments = text.split(/\b/g);
-                let lastReport = 0;
+                let lastReport = Date.now();
                 let cancelled = false;
                 for (let i = 0; i < segments.length; i++) {
-                    const now = performance.now();
+                    const now = Date.now();
                     if ((now - lastReport) > 100) {
                         lastReport = now;
                         if (token.isCancellationRequested) {
