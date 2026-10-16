@@ -17,6 +17,24 @@
 	],
 	"main": "./dist/extension.js",
 	"contributes": {
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "rapidToolsM0",
+					"title": "代码理解 M0",
+					"icon": "images/icon.png"
+				}
+			]
+		},
+		"views": {
+			"rapidToolsM0": [
+				{
+					"id": "rapidTools.m0Probe",
+					"name": "打包与资源探针",
+					"type": "webview"
+				}
+			]
+		},
 		"menus": {
 			"explorer/context": [
 				{
@@ -163,6 +181,8 @@
 		"webpack-cli": "^6.0.1"
 	},
 	"dependencies": {
+		"@babel/parser": "^7.28.0",
+		"@vue/compiler-sfc": "^3.5.0",
 		"opencc-js": "^1.0.5"
 	}
 }

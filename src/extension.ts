@@ -7,9 +7,11 @@ import ReadI18n from "./readI18n";
 import CN2TW from "./cn2tw";
 import ENConverter from './enConverter';
 import utils from './utils/utils';
+import { registerCodeNavM0Probe } from './codeNavM0Probe';
 
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+        registerCodeNavM0Probe(context);
 	CN2TW.init(context.subscriptions);
 	ENConverter.init(context.subscriptions);
 	LeftMenus.init();
