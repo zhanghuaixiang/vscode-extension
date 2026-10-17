@@ -37,12 +37,12 @@
 
     function textLine(node, label) {
         const entry = el('div', 'node-entry');
+        const doc = docBlock(node);
+        if (doc) entry.append(doc);
         const row = el('div', 'node-row');
         row.append(button(label || node.name, 'reveal', node.id));
         row.append(el('span', 'line-mark', `L${node.range.startLine}`));
         entry.append(row);
-        const doc = docBlock(node);
-        if (doc) entry.append(doc);
         return entry;
     }
 
@@ -510,6 +510,7 @@
             if (item.children.length || item.hasChildren) {
                 const details = el('details', 'tree-group');
                 details.dataset.templateId = item.id;
+                details.open = true;
                 const heading = el('summary', 'tree-heading');
                 heading.append(el('span', `tag ${item.isComponent ? 'custom' : ''}`, `<${item.tag}>`));
                 heading.append(el('span', 'line-mark', `L${item.range.startLine}`));
@@ -532,6 +533,31 @@
         const controls = pager(total, offset, 'pageTemplate', parentId ?? '__root__');
         if (controls) list.append(controls);
         return list;
+    }
+
+    const AUTO_LOAD_LIMIT = 30;
+
+    // 只补载“已展开且祖先都展开”的分页节点，避免折叠状态下发起无谓请求。
+    function withinOpenDetails(element) {
+        let parent = element.parentElement;
+        while (parent) {
+            if (parent.tagName === 'DETAILS' && !parent.open) { return false; }
+            parent = parent.parentElement;
+        }
+        return true;
+    }
+
+    function loadOpenTemplatePages() {
+        if (state.status !== 'ready' || tab !== 'structure') { return; }
+        const pending = [...root.querySelectorAll('details[data-template-id]:not([data-loaded])')]
+            .filter(item => item.open && withinOpenDetails(item));
+        for (const details of pending.slice(0, AUTO_LOAD_LIMIT)) {
+            details.dataset.loaded = 'true';
+            vscode.postMessage({
+                type: 'pageTemplate', parentId: details.dataset.templateId,
+                offset: 0, publicationId: state.publicationId
+            });
+        }
     }
 
     function renderSectionBody(ids, nodes, key, offset, total) {
@@ -630,6 +656,7 @@
             type: 'applied', file: state.file, status: state.status,
             publicationId: state.publicationId
         });
+        loadOpenTemplatePages();
     }
 
     root.addEventListener('click', event => {
@@ -664,17 +691,7 @@
             });
         }
     });
-    root.addEventListener('toggle', event => {
-        const details = event.target;
-        if (!details.matches?.('details[data-template-id]') || !details.open || details.dataset.loaded) {
-            return;
-        }
-        details.dataset.loaded = 'true';
-        vscode.postMessage({
-            type: 'pageTemplate', parentId: details.dataset.templateId,
-            offset: 0, publicationId: state.publicationId
-        });
-    }, true);
+    root.addEventListener('toggle', () => loadOpenTemplatePages(), true);
     window.addEventListener('message', event => {
         const message = event.data;
         if (message?.type === 'state') {
@@ -694,6 +711,7 @@
             const page = [...root.querySelectorAll('[data-parent-id]')]
                 .find(item => item.dataset.parentId === key);
             page?.replaceWith(renderTemplate(message.items, message.parentId, message.offset, message.total));
+            loadOpenTemplatePages();
         }
     });
     vscode.postMessage({ type: 'ready' });
