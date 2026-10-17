@@ -26,6 +26,17 @@ suite('Code navigation projection', () => {
         assert.strictEqual(sectionPage(result, 'declarations', -1), undefined);
     });
 
+    test('bounds author comment previews but keeps the full count', () => {
+        const result = analyze('export const value = 1;', 'notes.js');
+        const example = { kind: 'todo' as const, text: '待办', line: 1, block: 'script' as const };
+        result.comments = Array.from({ length: 60 }, (_, index) => ({
+            ...example, id: `comment:${index}`
+        }));
+        const projected = projectResult(result);
+        assert.strictEqual(projected.comments.length, 40);
+        assert.strictEqual(projected.pagination.commentCount, 60);
+    });
+
     test('loads template roots and child subtrees without shipping descendants in preview', () => {
         const result = analyze('<template><div /></template>', 'large.vue');
         const example = result.template!.tree[0];
@@ -42,5 +53,63 @@ suite('Code navigation projection', () => {
         assert.strictEqual(templatePage(result, null, 50)?.items[0].tag, 'item-50');
         assert.strictEqual(templatePage(result, 'template:0', 0)?.items[0].tag, 'nested');
         assert.strictEqual(templatePage(result, 'missing', 0), undefined);
+    });
+
+    test('keeps contract nodes reachable and reports contract counts', () => {
+        const source = [
+            '<template><button @click="submit">{{ count }}</button><slot :item="count" /></template>',
+            '<script>',
+            'export default {',
+            "  name: 'Counter',",
+            "  props: { id: { type: String, required: true } },",
+            "  emits: ['submit'],",
+            '  data() { return { count: 0 }; },',
+            '  methods: { submit() { this.count++; this.$emit("submit"); } }',
+            '};',
+            '</script>'
+        ].join('\n');
+        const result = analyze(source, 'Counter.vue');
+        const projected = projectResult(result);
+        assert.strictEqual(projected.pagination.propCount, result.contract.props.length);
+        assert.strictEqual(projected.pagination.emitCount, result.contract.emits.length);
+        assert.strictEqual(projected.pagination.slotCount, 1);
+        assert.strictEqual(projected.pagination.flowCount, result.contract.flows.length);
+        assert.ok(projected.pagination.flowCount >= 2);
+        const ids = new Set(projected.nodes.map(item => item.id));
+        for (const prop of result.contract.props) { assert.ok(ids.has(prop.id), `missing ${prop.name}`); }
+        for (const slot of result.contract.slots) { assert.ok(ids.has(slot.id), 'missing slot'); }
+        for (const flow of result.contract.flows) {
+            assert.ok(ids.has(flow.id), `missing flow ${flow.name}`);
+            for (const ref of [...flow.reads, ...flow.writes, ...flow.watches]) {
+                assert.ok(ids.has(ref.id), `missing flow ref ${flow.name}`);
+            }
+        }
+    });
+
+    test('bounds the timeline and function cards while keeping full counts', () => {
+        const source = [
+            '<script>',
+            'export default {',
+            "  name: 'Board',",
+            '  data() { return { items: [] }; },',
+            "  watch: { items: 'reload' },",
+            '  methods: {',
+            '    async reload() { try { await this.fetch(); return this.items; } catch (e) {} },',
+            '    fetch() {}',
+            '  }',
+            '};',
+            '</script>'
+        ].join('\n');
+        const result = analyze(source, 'Board.vue');
+        const projected = projectResult(result);
+        assert.strictEqual(projected.pagination.timelineCount, result.timeline.length);
+        assert.strictEqual(projected.pagination.functionCount, result.functions.length);
+        assert.ok(projected.pagination.functionCount >= 2);
+        assert.ok(projected.timeline.length <= 60);
+        assert.ok(projected.functions.length <= 60);
+        const ids = new Set(projected.nodes.map(item => item.id));
+        for (const step of result.timeline) {
+            if (step.id) { assert.ok(ids.has(step.id), `missing timeline ${step.name}`); }
+        }
     });
 });

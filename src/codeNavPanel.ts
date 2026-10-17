@@ -127,6 +127,9 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
                             Number.isInteger(message.relationIndex) ? message.relationIndex : undefined);
                     }
                     break;
+                case 'revealLine':
+                    if (Number.isInteger(message.line)) { void this.revealLine(message.line); }
+                    break;
                 case 'pageSection':
                     if (message.publicationId === this.publicationId
                         && typeof message.key === 'string' && Number.isInteger(message.offset)
@@ -320,6 +323,31 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
             if (!relation || relation.from !== id) { return; }
             range = relation.evidence;
         }
+        await this.revealPosition(document, range);
+    }
+
+    /** 只允许跳到本次分析记录过的行（作者注释、契约与状态流转），避免面板成为任意行跳转入口。 */
+    private async revealLine(line: number): Promise<void> {
+        const snapshot = this.snapshot;
+        const document = this.editor?.document;
+        if (!snapshot || !document || document.uri.toString() !== snapshot.uri
+            || document.version !== snapshot.version) {
+            this.refresh();
+            return;
+        }
+        const contract = snapshot.result.contract;
+        const known = snapshot.result.doc?.line === line
+            || snapshot.result.comments.some(item => item.line === line)
+            || contract.slots.some(item => item.line === line)
+            || contract.injections.some(item => item.line === line)
+            || contract.flows.some(flow => flow.templateLines.includes(line));
+        if (!known) { return; }
+        await this.revealPosition(document, { startLine: line, startColumn: 1, endLine: line, endColumn: 1 });
+    }
+
+    private async revealPosition(
+        document: vscode.TextDocument, range: SourceRange
+    ): Promise<void> {
         if (range.startLine < 1 || range.startLine > document.lineCount) { return; }
         const position = new vscode.Position(range.startLine - 1,
             Math.min(range.startColumn - 1, document.lineAt(range.startLine - 1).text.length));

@@ -195,6 +195,275 @@ suite('Code navigation core', () => {
         assert.ok(result.errors.some(error => error.block === 'script' && error.line === 4));
     });
 
+    test('Author comments, JSDoc tags and TODOs keep their original lines', () => {
+        const source = [
+            '<template>',
+            '  <!-- 订单卡片：支持批量选择 -->',
+            '  <div>',
+            '    <!-- TODO: 骨架屏 -->',
+            '    <button @click="submit">提交</button>',
+            '  </div>',
+            '</template>',
+            '<script>',
+            '/**',
+            ' * 订单卡片组件',
+            ' * @deprecated 请改用 OrderPanel',
+            ' */',
+            'export default {',
+            '  props: {',
+            '    // 订单编号，必填',
+            '    id: String,',
+            '    size: Number // 每页数量',
+            '  },',
+            '  data() { return {',
+            '    count: 0 // 已选数量',
+            '  }; },',
+            '  methods: {',
+            '    /**',
+            '     * 提交订单',
+            '     * @param force 是否强制提交',
+            '     * @returns 服务端订单号',
+            '     */',
+            '    submit(force) { this.count++; return 1; },',
+            '    // FIXME: 依赖后端字段，先写死',
+            '    reset() {}',
+            '  }',
+            '};',
+            '</script>'
+        ].join('\n');
+        const result = analyze(source, 'OrderCard.vue');
+        assert.deepStrictEqual(result.errors, []);
+        assert.strictEqual(result.doc?.text, '订单卡片组件');
+        assert.strictEqual(result.doc?.line, 9);
+        assert.deepStrictEqual(result.doc?.tags, [{ tag: 'deprecated', text: '请改用 OrderPanel' }]);
+        assert.strictEqual(result.guide.summary?.origin, 'comment');
+        assert.strictEqual(result.guide.summary?.text, '订单卡片组件');
+        assert.deepStrictEqual(result.guide.summary?.evidence, [9]);
+
+        const submit = node(result, 'method', 'submit');
+        assert.strictEqual(submit.doc?.text, '提交订单');
+        assert.deepStrictEqual(submit.doc?.tags, [
+            { tag: 'param', text: 'force 是否强制提交' },
+            { tag: 'returns', text: '服务端订单号' }
+        ]);
+        assert.strictEqual(node(result, 'prop', 'id').doc?.text, '订单编号，必填');
+        assert.strictEqual(node(result, 'method', 'reset').doc, undefined,
+            'TODO / FIXME 一类标记属于待办清单，不作为函数说明');
+        assert.deepStrictEqual(result.comments.map(item => [item.kind, item.text, item.line]), [
+            ['note', '订单卡片：支持批量选择', 2],
+            ['todo', '骨架屏', 4],
+            ['note', '每页数量', 17],
+            ['note', '已选数量', 20],
+            ['fixme', '依赖后端字段，先写死', 29]
+        ]);
+    });
+
+    test('A trailing comment is not attributed to the next declaration', () => {
+        const source = [
+            'const first = 1; // 行尾说明',
+            'function second() {}'
+        ].join('\n');
+        const result = analyze(source, 'trailing.js');
+        assert.strictEqual(node(result, 'function', 'second').doc, undefined);
+        assert.ok(result.comments.some(item => item.kind === 'note'
+            && item.text === '行尾说明' && item.line === 1));
+    });
+
+    test('Summary falls back to structure facts when the file has no author comment', () => {
+        const script = analyze("export function plain() { return 1; }", 'plain.js');
+        assert.strictEqual(script.doc, null);
+        assert.deepStrictEqual(script.comments, []);
+        assert.strictEqual(script.guide.summary?.origin, 'structure');
+        assert.strictEqual(script.guide.summary?.confidence, 'fact');
+
+        const component = analyze("<script>export default { name: 'Card' };</script>", 'Card.vue');
+        assert.strictEqual(component.doc, null);
+        assert.strictEqual(component.guide.summary?.origin, 'structure');
+        assert.ok(component.guide.summary?.text.includes('Card'));
+    });
+
+    test('Vue Options API exposes props, emits, slots, injections and state flow', () => {
+        const source = [
+            '<template>',
+            '  <div>',
+            '    <slot name="header">标题</slot>',
+            '    <slot :item="count" />',
+            '    <button @click="submit">提交</button>',
+            '  </div>',
+            '</template>',
+            '<script>',
+            'export default {',
+            "  name: 'Counter',",
+            '  props: {',
+            '    id: { type: String, required: true },',
+            '    size: { type: [Number, String], default: 10 },',
+            '    mode: { type: String, validator: (v) => v.length > 0 }',
+            '  },',
+            "  emits: ['submit', 'close'],",
+            "  provide() { return { theme: 'dark' }; },",
+            "  inject: ['store'],",
+            '  data() { return { count: 0 }; },',
+            '  computed: { double() { return this.count * 2; } },',
+            "  watch: { count: 'onCount' },",
+            '  methods: {',
+            "    submit() { this.count++; this.$emit('submit', this.count); },",
+            '    onCount() {}',
+            '  }',
+            '};',
+            '</script>'
+        ].join('\n');
+        const result = analyze(source, 'Counter.vue');
+        assert.deepStrictEqual(result.errors, []);
+
+        const id = result.contract.props.find(item => item.name === 'id')!;
+        assert.strictEqual(id.type, 'String');
+        assert.strictEqual(id.required, true);
+        assert.strictEqual(id.defaultText, null);
+        assert.strictEqual(id.hasValidator, false);
+        assert.strictEqual(id.source, 'object');
+        const size = result.contract.props.find(item => item.name === 'size')!;
+        assert.strictEqual(size.type, 'Number | String');
+        assert.strictEqual(size.defaultText, '10');
+        assert.strictEqual(size.required, false);
+        const mode = result.contract.props.find(item => item.name === 'mode')!;
+        assert.strictEqual(mode.hasValidator, true);
+
+        assert.deepStrictEqual(result.contract.emits.map(item => item.name), ['submit', 'close']);
+        const submitEmit = result.contract.emits.find(item => item.name === 'submit')!;
+        assert.strictEqual(submitEmit.declared, true);
+        assert.strictEqual(submitEmit.declarationLine, 16);
+        assert.deepStrictEqual(submitEmit.triggers.map(item => [item.ownerName, item.line]),
+            [['submit', 23]]);
+        assert.deepStrictEqual(
+            result.contract.emits.find(item => item.name === 'close')!.triggers, []);
+
+        assert.deepStrictEqual(result.contract.slots.map(item => [item.name, item.line, item.scoped]), [
+            ['header', 3, false],
+            ['default', 4, true]
+        ]);
+        assert.deepStrictEqual(
+            result.contract.injections.map(item => [item.key, item.kind, item.certainty]),
+            [['theme', 'provide', 'certain'], ['store', 'inject', 'certain']]);
+
+        const countFlow = result.contract.flows.find(item => item.name === 'count')!;
+        const submitMethod = node(result, 'method', 'submit');
+        const doubleComputed = node(result, 'computed', 'double');
+        const countWatch = node(result, 'watch', 'count');
+        assert.ok(countFlow.writes.some(item => item.id === submitMethod.id && item.line === 23));
+        assert.ok(countFlow.reads.some(item => item.id === submitMethod.id));
+        assert.ok(countFlow.reads.some(item => item.id === doubleComputed.id && item.line === 20));
+        assert.ok(countFlow.watches.some(item => item.id === countWatch.id));
+        assert.deepStrictEqual(countFlow.templateLines, [4]);
+    });
+
+    test('Script setup macros expose typed props, emits, model and injections', () => {
+        const source = [
+            '<script setup lang="ts">',
+            "import { ref, watch, provide, inject } from 'vue';",
+            'interface Props { label: string; count?: number }',
+            'const props = withDefaults(defineProps<Props>(), { count: 3 });',
+            "const emit = defineEmits<{ (e: 'change', value: number): void }>();",
+            "const title = defineModel<string>('title');",
+            'const total = ref(0);',
+            "provide('theme', 'dark');",
+            "const store = inject('store');",
+            'watch(total, () => { total.value = 1; });',
+            "function bump() { total.value++; emit('change', total.value); }",
+            '</script>'
+        ].join('\n');
+        const result = analyze(source, 'Setup.vue');
+        assert.deepStrictEqual(result.errors, []);
+
+        const label = result.contract.props.find(item => item.name === 'label')!;
+        assert.strictEqual(label.type, 'string');
+        assert.strictEqual(label.required, true);
+        assert.strictEqual(label.source, 'type');
+        const count = result.contract.props.find(item => item.name === 'count')!;
+        assert.strictEqual(count.required, false);
+        assert.strictEqual(count.defaultText, '3');
+        assert.ok(result.contract.props.some(item => item.name === 'title'));
+
+        const change = result.contract.emits.find(item => item.name === 'change')!;
+        assert.strictEqual(change.declared, true);
+        assert.strictEqual(change.declarationLine, 5);
+        assert.deepStrictEqual(change.triggers.map(item => [item.ownerName, item.line]),
+            [['bump', 11]]);
+        assert.ok(result.contract.emits.some(item => item.name === 'update:title'));
+
+        const totalFlow = result.contract.flows.find(item => item.name === 'total')!;
+        const bump = node(result, 'function', 'bump');
+        const watchNode = node(result, 'watch', 'total');
+        assert.ok(totalFlow.writes.some(item => item.id === bump.id && item.line === 11));
+        assert.ok(totalFlow.reads.some(item => item.id === bump.id));
+        assert.ok(totalFlow.watches.some(item => item.id === watchNode.id));
+
+        assert.deepStrictEqual(result.contract.injections.map(item => [item.key, item.kind]), [
+            ['theme', 'provide'], ['store', 'inject']
+        ]);
+    });
+
+    test('Timeline and function cards expose order, signature and impact surface', () => {
+        const source = [
+            '<script>',
+            'export default {',
+            "  name: 'Board',",
+            '  data() { return { items: [], loading: false }; },',
+            '  computed: { total() { return this.items.length; } },',
+            "  watch: { items: 'reload' },",
+            '  methods: {',
+            '    async reload() {',
+            '      try {',
+            '        this.loading = true;',
+            '        await this.fetch();',
+            '        this.items = [];',
+            '        return this.items;',
+            '      } catch (error) { this.loading = false; }',
+            '    },',
+            '    fetch() {}',
+            '  }',
+            '};',
+            '</script>'
+        ].join('\n');
+        const result = analyze(source, 'Board.vue');
+        assert.deepStrictEqual(result.errors, []);
+
+        assert.deepStrictEqual(result.timeline.map(step => [step.name, step.kind, step.line]), [
+            ['items', 'state', 4],
+            ['loading', 'state', 4],
+            ['total', 'computed', 5],
+            ['items', 'watch', 6]
+        ]);
+
+        const reload = result.functions.find(item => item.name === 'reload')!;
+        assert.strictEqual(reload.signature, 'async reload()');
+        assert.strictEqual(reload.line, 8);
+        assert.strictEqual(reload.isAsync, true);
+        assert.strictEqual(reload.hasReturn, true);
+        assert.strictEqual(reload.errorHandling, true);
+        assert.deepStrictEqual(reload.params, []);
+        assert.deepStrictEqual(reload.callers, []);
+        assert.deepStrictEqual(reload.callees.map(ref => [ref.name, ref.line]), [['fetch', 11]]);
+        assert.deepStrictEqual(reload.writes.map(ref => [ref.name, ref.line]),
+            [['loading', 10], ['items', 12]]);
+
+        const fetch = result.functions.find(item => item.name === 'fetch')!;
+        assert.strictEqual(fetch.signature, 'fetch()');
+        assert.strictEqual(fetch.hasReturn, false);
+        assert.strictEqual(fetch.errorHandling, false);
+        assert.deepStrictEqual(fetch.callers.map(ref => [ref.name, ref.line]), [['reload', 11]]);
+
+        const total = result.functions.find(item => item.name === 'total')!;
+        assert.strictEqual(total.hasReturn, true);
+        assert.strictEqual(total.isAsync, false);
+
+        const js = analyze('export const pick = (a, b) => a + b;', 'pick.js');
+        assert.deepStrictEqual(js.timeline, []);
+        const pick = js.functions.find(item => item.name === 'pick')!;
+        assert.strictEqual(pick.signature, 'pick(a, b)');
+        assert.strictEqual(pick.hasReturn, true);
+        assert.strictEqual(pick.isAsync, false);
+    });
+
     test('Bundled CLI and core return the same JSON for one snapshot', function () {
         this.timeout(15_000);
         const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'code-nav-m1-'));

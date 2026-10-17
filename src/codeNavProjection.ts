@@ -11,6 +11,14 @@ export interface PanelResult extends Omit<CodeNavResult, 'nodes' | 'paths' | 'te
         templateCount: number;
         entryCount: number;
         errorCount: number;
+        commentCount: number;
+        propCount: number;
+        emitCount: number;
+        slotCount: number;
+        injectionCount: number;
+        flowCount: number;
+        timelineCount: number;
+        functionCount: number;
     };
 }
 
@@ -132,6 +140,20 @@ export function projectResult(result: CodeNavResult, focusId?: string): PanelRes
         tree: result.template.tree.slice(0, PAGE_SIZE).map(shallowTemplate)
     };
     template?.tree.forEach(node => selected.add(node.id));
+    for (const prop of result.contract.props) { selected.add(prop.id); }
+    for (const slot of result.contract.slots) { selected.add(slot.id); }
+    for (const emit of result.contract.emits) {
+        for (const trigger of emit.triggers) { selected.add(trigger.ownerId); }
+    }
+    for (const flow of result.contract.flows) {
+        selected.add(flow.id);
+        for (const ref of [...flow.reads, ...flow.writes, ...flow.watches]) { selected.add(ref.id); }
+    }
+    const timeline = result.timeline.slice(0, 60);
+    for (const step of timeline) {
+        if (step.id) { selected.add(step.id); }
+    }
+    const functions = result.functions.slice(0, 60);
     const nodes = result.nodes.filter(node => selected.has(node.id));
     for (const node of nodes) {
         node.children?.slice(0, PAGE_SIZE).forEach(id => selected.add(id));
@@ -143,13 +165,24 @@ export function projectResult(result: CodeNavResult, focusId?: string): PanelRes
         imports,
         script,
         template,
+        timeline,
+        functions,
         guide: { ...result.guide, entries: guideEntries, state: result.guide.state.slice(0, 12) },
         errors: result.errors.slice(0, 20),
+        comments: result.comments.slice(0, 40),
         pagination: {
             sections,
             templateCount: result.template?.tree.length ?? 0,
             entryCount: result.guide.entries.length,
-            errorCount: result.errors.length
+            errorCount: result.errors.length,
+            commentCount: result.comments.length,
+            propCount: result.contract.props.length,
+            emitCount: result.contract.emits.length,
+            slotCount: result.contract.slots.length,
+            injectionCount: result.contract.injections.length,
+            flowCount: result.contract.flows.length,
+            timelineCount: result.timeline.length,
+            functionCount: result.functions.length
         }
     };
 }

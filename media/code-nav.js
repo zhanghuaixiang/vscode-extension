@@ -20,11 +20,299 @@
         return element;
     }
 
+    function docBlock(node) {
+        if (!node.doc) return null;
+        const block = el('div', 'doc-block');
+        if (node.doc.text) block.append(el('p', 'doc-text', node.doc.text));
+        if (node.doc.tags?.length) {
+            const tags = el('div', 'doc-tags');
+            for (const item of node.doc.tags) {
+                tags.append(el('span', `doc-tag tag-${item.tag}`,
+                    `@${item.tag}${item.text ? ` ${item.text}` : ''}`));
+            }
+            block.append(tags);
+        }
+        return block.children.length ? block : null;
+    }
+
     function textLine(node, label) {
+        const entry = el('div', 'node-entry');
         const row = el('div', 'node-row');
         row.append(button(label || node.name, 'reveal', node.id));
         row.append(el('span', 'line-mark', `L${node.range.startLine}`));
-        return row;
+        entry.append(row);
+        const doc = docBlock(node);
+        if (doc) entry.append(doc);
+        return entry;
+    }
+
+    const noteLabels = { todo: 'TODO', fixme: 'FIXME', hack: 'HACK', note: '备注' };
+
+    function renderNotes(result, limit) {
+        const notes = result.comments ?? [];
+        if (!notes.length) return null;
+        const total = result.pagination?.commentCount ?? notes.length;
+        const list = el('div', 'note-list');
+        for (const note of notes.slice(0, limit)) {
+            const row = el('div', 'note-row');
+            row.append(el('span', `note-kind kind-${note.kind}`, noteLabels[note.kind] || note.kind));
+            row.append(button(note.text, 'reveal', note.id, 'note-text'));
+            row.append(el('span', 'line-mark', `L${note.line}`));
+            list.append(row);
+        }
+        if (total > limit) {
+            list.append(el('p', 'overflow-note', `还有 ${total - limit} 条备注，可切换到完整结构查看。`));
+        }
+        return list;
+    }
+
+    function renderProps(props, nodes) {
+        const list = el('div', 'contract-list');
+        for (const prop of props) {
+            const item = nodes.get(prop.id);
+            const row = el('div', 'contract-row');
+            const head = el('div', 'node-row');
+            head.append(button(prop.name, 'reveal', prop.id, 'contract-name'));
+            if (prop.type) head.append(el('span', 'contract-type', prop.type));
+            if (prop.required) head.append(el('span', 'contract-flag required', '必填'));
+            if (prop.hasValidator) head.append(el('span', 'contract-flag', 'validator'));
+            head.append(el('span', 'line-mark', item ? `L${item.range.startLine}` : ''));
+            row.append(head);
+            if (prop.defaultText) {
+                row.append(el('div', 'contract-note', `默认值 ${prop.defaultText}`));
+            }
+            list.append(row);
+        }
+        return list;
+    }
+
+    function renderEmits(emits, nodes) {
+        const list = el('div', 'contract-list');
+        for (const item of emits) {
+            const row = el('div', 'contract-row');
+            const head = el('div', 'node-row');
+            head.append(el('span', 'contract-name', `@${item.name}`));
+            head.append(el('span', `contract-flag ${item.declared ? 'required' : ''}`,
+                item.declared ? '已在 emits 声明' : '未在 emits 声明'));
+            head.append(el('span', 'line-mark', item.declarationLine ? `L${item.declarationLine}` : ''));
+            row.append(head);
+            for (const trigger of item.triggers) {
+                const line = el('div', 'contract-trigger');
+                line.append(button(trigger.ownerName, 'reveal', trigger.ownerId));
+                line.append(el('span', 'line-mark', `L${trigger.line}`));
+                row.append(line);
+            }
+            if (!item.triggers.length) {
+                row.append(el('div', 'contract-note', '本文件内未见触发点。'));
+            }
+            list.append(row);
+        }
+        return list;
+    }
+
+    function renderSlots(slots) {
+        const list = el('div', 'contract-list');
+        for (const slot of slots) {
+            const row = el('div', 'node-row');
+            row.append(button(slot.name === 'default' ? '<slot>' : `<slot name="${slot.name}">`,
+                'reveal', slot.id, 'contract-name'));
+            if (slot.scoped) row.append(el('span', 'contract-flag', '作用域插槽'));
+            row.append(el('span', 'line-mark', `L${slot.line}`));
+            list.append(row);
+        }
+        return list;
+    }
+
+    function renderInjections(injections) {
+        const list = el('div', 'contract-list');
+        for (const item of injections) {
+            const row = el('div', 'node-row');
+            row.append(el('span', 'contract-kind', item.kind));
+            row.append(el('span', 'contract-name', item.key));
+            if (item.certainty === 'unresolved') row.append(el('span', 'contract-flag', '未确认'));
+            const jump = button(`L${item.line}`, 'revealLine', undefined, 'line-link');
+            jump.dataset.line = String(item.line);
+            row.append(jump);
+            list.append(row);
+        }
+        return list;
+    }
+
+    function flowRefs(refs, nodes, label) {
+        if (!refs.length) return null;
+        const part = el('div', 'flow-part');
+        part.append(el('span', 'flow-label', label));
+        for (const ref of refs) {
+            const item = nodes.get(ref.id);
+            part.append(button(item ? item.name : ref.id, 'reveal', ref.id, 'flow-ref'));
+            part.append(el('span', 'flow-line', `L${ref.line}`));
+        }
+        return part;
+    }
+
+    function renderFlows(flows, nodes) {
+        const list = el('div', 'flow-list');
+        for (const flow of flows) {
+            const item = nodes.get(flow.id);
+            const row = el('div', 'flow-row');
+            const head = el('div', 'node-row');
+            head.append(button(flow.name, 'reveal', flow.id, 'flow-name'));
+            if (item) head.append(el('span', 'contract-kind', item.kind));
+            head.append(el('span', 'line-mark', item ? `L${item.range.startLine}` : ''));
+            row.append(head);
+            const reads = flowRefs(flow.reads, nodes, '读取');
+            const writes = flowRefs(flow.writes, nodes, '写入');
+            const watches = flowRefs(flow.watches, nodes, 'watch');
+            if (reads) row.append(reads);
+            if (writes) row.append(writes);
+            if (watches) row.append(watches);
+            if (flow.templateLines.length) {
+                const part = el('div', 'flow-part');
+                part.append(el('span', 'flow-label', '模板'));
+                for (const line of flow.templateLines.slice(0, 8)) {
+                    const jump = button(`L${line}`, 'revealLine', undefined, 'flow-ref');
+                    jump.dataset.line = String(line);
+                    part.append(jump);
+                }
+                row.append(part);
+            }
+            if (!reads && !writes && !watches && !flow.templateLines.length) {
+                row.append(el('div', 'contract-note', '本文件内未见读写或模板引用。'));
+            }
+            list.append(row);
+        }
+        return list;
+    }
+
+    const FLOW_LIMIT = 24;
+
+    function renderContract(result, nodes) {
+        const contract = result.contract;
+        if (!contract) return [];
+        const blocks = [];
+        if (contract.props.length) {
+            const section = el('section', 'contract-section');
+            section.append(el('h3', 'block-heading', `组件入参 · props（${result.pagination?.propCount ?? contract.props.length}）`));
+            section.append(renderProps(contract.props, nodes));
+            blocks.push(section);
+        }
+        if (contract.emits.length) {
+            const section = el('section', 'contract-section');
+            section.append(el('h3', 'block-heading', `对外事件 · emits（${result.pagination?.emitCount ?? contract.emits.length}）`));
+            section.append(renderEmits(contract.emits, nodes));
+            blocks.push(section);
+        }
+        if (contract.slots.length) {
+            const section = el('section', 'contract-section');
+            section.append(el('h3', 'block-heading', `插槽 · slots（${contract.slots.length}）`));
+            section.append(renderSlots(contract.slots));
+            blocks.push(section);
+        }
+        if (contract.injections.length) {
+            const section = el('section', 'contract-section');
+            section.append(el('h3', 'block-heading', `依赖注入 · provide / inject（${contract.injections.length}）`));
+            section.append(renderInjections(contract.injections));
+            blocks.push(section);
+        }
+        return blocks;
+    }
+
+    function renderFlowSection(result, nodes) {
+        const flows = result.contract?.flows ?? [];
+        const active = flows.filter(flow => flow.reads.length || flow.writes.length
+            || flow.watches.length || flow.templateLines.length);
+        if (!active.length) return null;
+        const section = el('section', 'contract-section');
+        section.append(el('h3', 'block-heading',
+            `状态流转 · 谁读谁写（${result.pagination?.flowCount ?? flows.length}）`));
+        section.append(el('p', 'hint', '读取/写入都来自本文件可见的代码；跨文件读写不在范围内。'));
+        section.append(renderFlows(active.slice(0, FLOW_LIMIT), nodes));
+        if (active.length > FLOW_LIMIT) {
+            section.append(el('p', 'overflow-note',
+                `还有 ${active.length - FLOW_LIMIT} 项状态，可切换到完整结构查看。`));
+        }
+        return section;
+    }
+
+    const TIMELINE_LIMIT = 40;
+
+    function renderTimeline(result) {
+        const steps = result.timeline ?? [];
+        if (!steps.length) return null;
+        const total = result.pagination?.timelineCount ?? steps.length;
+        const section = el('section', 'contract-section');
+        section.append(el('h3', 'block-heading', `初始化与生命周期 · 顺序推定（${total}）`));
+        section.append(el('p', 'hint', '顺序按源码出现位置推定，不代表运行时真实执行顺序。'));
+        const list = el('div', 'timeline-list');
+        for (const step of steps.slice(0, TIMELINE_LIMIT)) {
+            const row = el('div', 'timeline-row');
+            row.append(el('span', 'timeline-kind', step.kind));
+            if (step.id) {
+                row.append(button(step.name, 'reveal', step.id, 'timeline-name'));
+            } else {
+                row.append(el('span', 'timeline-name', step.name));
+            }
+            row.append(el('span', 'line-mark', `L${step.line}`));
+            list.append(row);
+        }
+        section.append(list);
+        if (total > TIMELINE_LIMIT) {
+            section.append(el('p', 'overflow-note',
+                `还有 ${total - TIMELINE_LIMIT} 步，可切换到完整结构查看。`));
+        }
+        return section;
+    }
+
+    const FUNCTION_LIMIT = 12;
+
+    function functionRefs(refs, label) {
+        if (!refs.length) return null;
+        const part = el('div', 'flow-part');
+        part.append(el('span', 'flow-label', label));
+        for (const ref of refs) {
+            part.append(button(ref.name, 'reveal', ref.id, 'flow-ref'));
+            part.append(el('span', 'flow-line', `L${ref.line}`));
+        }
+        return part;
+    }
+
+    function renderFunctions(result) {
+        const cards = result.functions ?? [];
+        if (!cards.length) return null;
+        const total = result.pagination?.functionCount ?? cards.length;
+        const section = el('section', 'contract-section');
+        section.append(el('h3', 'block-heading', `函数卡片 · 签名与影响面（${total}）`));
+        section.append(el('p', 'hint', '签名、返回值与调用关系都来自本文件静态语法；跨文件调用不在范围内。'));
+        const list = el('div', 'card-list');
+        for (const card of cards.slice(0, FUNCTION_LIMIT)) {
+            const box = el('div', 'fn-card');
+            const head = el('div', 'node-row');
+            head.append(button(card.signature, 'reveal', card.id, 'fn-signature'));
+            head.append(el('span', 'line-mark', `L${card.line}`));
+            box.append(head);
+            const flags = el('div', 'fn-flags');
+            if (card.isAsync) flags.append(el('span', 'contract-flag', 'async'));
+            flags.append(el('span', `contract-flag ${card.hasReturn ? 'required' : ''}`,
+                card.hasReturn ? '有返回' : '无返回'));
+            if (card.errorHandling) flags.append(el('span', 'contract-flag', '含错误处理'));
+            box.append(flags);
+            const callers = functionRefs(card.callers, '被调用');
+            const callees = functionRefs(card.callees, '内部调用');
+            const writes = functionRefs(card.writes, '写入状态');
+            if (callers) box.append(callers);
+            if (callees) box.append(callees);
+            if (writes) box.append(writes);
+            if (!callers && !callees && !writes) {
+                box.append(el('div', 'contract-note', '本文件内未见调用或状态写入。'));
+            }
+            list.append(box);
+        }
+        section.append(list);
+        if (total > FUNCTION_LIMIT) {
+            section.append(el('p', 'overflow-note',
+                `还有 ${total - FUNCTION_LIMIT} 个函数，可切换到完整结构查看。`));
+        }
+        return section;
     }
 
     function renderHeader() {
@@ -141,8 +429,20 @@
         }
         content.append(el('div', 'eyebrow', '01 / FILE READING'));
         content.append(el('h2', 'section-title', '先看脉络，再看细节'));
-        content.append(el('p', 'intro', result.guide.summary?.text || '暂无法从源码确认文件职责。先从可识别的声明开始阅读。'));
-        const hint = el('p', 'hint', '所有连线仅表示本文件可确认的静态关系，不代表完整运行时路径。');
+        const summary = result.guide.summary;
+        if (summary?.origin === 'comment') {
+            const quote = el('blockquote', 'author-quote');
+            quote.append(el('p', 'intro', summary.text));
+            const source = button(`作者原话 · L${summary.evidence[0] ?? '-'}`, 'revealLine',
+                undefined, 'quote-source');
+            source.dataset.line = String(summary.evidence[0] ?? '');
+            quote.append(source);
+            content.append(quote);
+        } else {
+            content.append(el('p', 'intro',
+                summary?.text || '暂无法从源码确认文件职责。先从可识别的声明开始阅读。'));
+        }
+        const hint = el('p', 'hint', '摘要与实际连线都只来自本文件；连线不代表完整运行时路径。');
         content.append(hint);
         if (result.errors.length) {
             const warning = el('div', 'diagnostic',
@@ -164,6 +464,13 @@
         if (moreEntries > 0) {
             content.append(el('p', 'overflow-note', `还有 ${moreEntries} 个入口，可切换到完整结构继续查看。`));
         }
+        for (const block of renderContract(result, nodes)) content.append(block);
+        const flows = renderFlowSection(result, nodes);
+        if (flows) content.append(flows);
+        const timeline = renderTimeline(result);
+        if (timeline) content.append(timeline);
+        const functions = renderFunctions(result);
+        if (functions) content.append(functions);
         if (result.guide.state.length) {
             content.append(el('h3', 'block-heading', '关键状态'));
             const list = el('div', 'state-list');
@@ -172,6 +479,11 @@
                 if (node) list.append(textLine(node));
             }
             content.append(list);
+        }
+        const notes = renderNotes(result, 8);
+        if (notes) {
+            content.append(el('h3', 'block-heading', '待办与备注'));
+            content.append(notes);
         }
         return content;
     }
@@ -288,6 +600,11 @@
                 result.pagination?.sections[key] ?? group.methods.length);
             if (section) content.append(section);
         }
+        const notes = renderNotes(result, 40);
+        if (notes) {
+            content.append(el('h3', 'block-heading', 'TODO 与备注'));
+            content.append(notes);
+        }
         if (result.errors.length) {
             content.append(el('h3', 'block-heading', '解析提示'));
             for (const error of result.errors.slice(0, 20)) {
@@ -326,6 +643,8 @@
             vscode.postMessage({ type: action });
         } else if (action === 'refresh') {
             vscode.postMessage({ type: 'refresh' });
+        } else if (action === 'revealLine') {
+            vscode.postMessage({ type: 'revealLine', line: Number(target.dataset.line) });
         } else if (action === 'reveal' || action === 'evidence') {
             vscode.postMessage({
                 type: 'reveal',

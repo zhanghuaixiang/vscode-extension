@@ -1,4 +1,6 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // You can import and use all API from the 'vscode' module
 // as well as import your extension to test it
@@ -34,6 +36,20 @@ suite('Extension Test Suite', () => {
                 );
                 assert.strictEqual(js.fileType, 'js');
                 assert.strictEqual(js.script.exports.length, 1);
+        });
+
+        test('M2 activity bar icon is a themed 24x24 SVG', async function () {
+                const extension = vscode.extensions.getExtension('zhanghuaixiang.rapid-tools');
+                assert.ok(extension);
+                const manifest = JSON.parse(
+                        fs.readFileSync(path.join(extension.extensionPath, 'package.json'), 'utf8')
+                );
+                const icon: string = manifest.contributes.viewsContainers.activitybar
+                        .find((item: { id: string }) => item.id === 'rapidToolsCodeNav').icon;
+                const svg = fs.readFileSync(path.join(extension.extensionPath, icon), 'utf8');
+                assert.ok(svg.includes('viewBox="0 0 24 24"'));
+                assert.ok(svg.includes('fill="currentColor"'), '缺少 currentColor 时图标无法跟随主题着色');
+                assert.ok(!/#[0-9a-f]{3,6}\b/i.test(svg), '硬编码颜色会导致部分主题下图标不可见');
         });
 
         test('M2 Webview renders packaged script and styles', async function () {

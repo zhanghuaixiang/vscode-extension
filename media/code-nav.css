@@ -155,7 +155,183 @@ button:focus-visible, summary:focus-visible {
 }
 .evidence:hover { text-decoration: underline; }
 .state-list { display: grid; gap: 3px; }
-.state-list .node-row { border-bottom: 1px solid var(--line); padding: 5px 0; }
+.state-list .node-entry { border-bottom: 1px solid var(--line); padding: 5px 0; }
+.node-entry { min-width: 0; }
+.doc-block { margin: 3px 0 2px; }
+.doc-text {
+    margin: 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+}
+.doc-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.doc-tag {
+    padding: 0 4px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    color: var(--muted);
+    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+}
+.doc-tag.tag-deprecated {
+    border-color: var(--vscode-editorWarning-foreground, #c49b55);
+    color: var(--vscode-editorWarning-foreground, #c49b55);
+}
+.author-quote {
+    margin: 0;
+    padding: 9px 11px;
+    border-left: 2px solid var(--accent);
+    background: var(--card);
+}
+.author-quote .intro { margin: 0; }
+.quote-source {
+    margin-top: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font-size: 10px;
+}
+.quote-source:hover { text-decoration: underline; }
+.note-list { display: grid; gap: 5px; }
+.note-row { display: flex; align-items: baseline; gap: 7px; }
+.note-kind {
+    flex: none;
+    padding: 0 5px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: var(--card);
+    color: var(--muted);
+    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+}
+.note-kind.kind-todo { border-color: var(--accent); color: var(--accent); }
+.note-kind.kind-fixme {
+    border-color: var(--vscode-editorWarning-foreground, #c49b55);
+    color: var(--vscode-editorWarning-foreground, #c49b55);
+}
+.note-text { flex: 1; min-width: 0; font-size: 11px; }
+.contract-section { margin-top: 4px; }
+.contract-section .block-heading { margin-top: 22px; }
+.contract-list { display: grid; gap: 8px; }
+.contract-row {
+    padding: 7px 10px;
+    border-left: 1px solid var(--line);
+    background: var(--card);
+}
+.contract-name {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font: 11px var(--vscode-editor-font-family, Consolas, monospace);
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+.contract-name:hover { color: var(--accent); }
+.contract-type {
+    color: var(--accent);
+    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    overflow-wrap: anywhere;
+}
+.contract-kind {
+    color: var(--muted);
+    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+}
+.contract-flag {
+    padding: 0 4px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    color: var(--muted);
+    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    white-space: nowrap;
+}
+.contract-flag.required { border-color: var(--accent); color: var(--accent); }
+.contract-note { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.contract-trigger {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    margin: 4px 0 0 10px;
+    padding-left: 9px;
+    border-left: 1px solid var(--accent);
+}
+.line-link {
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+}
+.line-link:hover { text-decoration: underline; }
+.flow-list { display: grid; gap: 7px; }
+.flow-row {
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+}
+.flow-name {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font: 11px var(--vscode-editor-font-family, Consolas, monospace);
+}
+.flow-name:hover { color: var(--accent); }
+.flow-part { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin-top: 4px; }
+.flow-label { flex: none; min-width: 28px; color: var(--muted); font-size: 10px; }
+.flow-ref {
+    padding: 0 4px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--ink);
+    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+}
+.flow-ref:hover { border-color: var(--accent); color: var(--accent); }
+.flow-line { color: var(--muted); font: 9px var(--vscode-editor-font-family, Consolas, monospace); }
+.timeline-list { display: grid; gap: 5px; }
+.timeline-row {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 5px 10px;
+    border-left: 1px solid var(--line);
+    background: var(--card);
+}
+.timeline-kind {
+    flex: none;
+    min-width: 46px;
+    color: var(--accent);
+    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+}
+.timeline-name {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font: 11px var(--vscode-editor-font-family, Consolas, monospace);
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+button.timeline-name:hover { color: var(--accent); }
+.card-list { display: grid; gap: 8px; }
+.fn-card {
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+}
+.fn-signature {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font: 11px var(--vscode-editor-font-family, Consolas, monospace);
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+.fn-signature:hover { color: var(--accent); }
+.fn-flags { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin-top: 5px; }
 .structure-section { border-bottom: 1px solid var(--line); padding: 4px 0; }
 .structure-heading, .tree-heading {
     cursor: pointer;
