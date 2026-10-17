@@ -14,8 +14,9 @@ const extensionConfig = {
 
   entry: {
     extension: './src/extension.ts',
-    codeNavM0Core: './src/codeNavM0Core.ts',
-    codeNavM0Worker: './src/codeNavM0Worker.ts'
+    codeNavCore: './src/codeNavCore.ts',
+    codeNavWorker: './src/codeNavWorker.ts',
+    codeNavCli: './src/codeNavCli.ts'
   },
   output: {
     // the bundle is stored in the 'dist' folder (check package.json), 📖 -> https://webpack.js.org/configuration/output/

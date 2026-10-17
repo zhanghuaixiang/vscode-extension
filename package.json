@@ -20,17 +20,17 @@
 		"viewsContainers": {
 			"activitybar": [
 				{
-					"id": "rapidToolsM0",
-					"title": "代码理解 M0",
+					"id": "rapidToolsCodeNav",
+					"title": "代码理解",
 					"icon": "images/icon.png"
 				}
 			]
 		},
 		"views": {
-			"rapidToolsM0": [
+			"rapidToolsCodeNav": [
 				{
-					"id": "rapidTools.m0Probe",
-					"name": "打包与资源探针",
+					"id": "rapidTools.codeNav",
+					"name": "单文件导读",
 					"type": "webview"
 				}
 			]
@@ -61,6 +61,11 @@
 					"title": "简体转EN",
 					"group": "navigation@0",
 					"when": "condition.showEnConverter"
+				},
+				{
+					"command": "rapidTools.codeNav.refresh",
+					"group": "navigation@1",
+					"when": "resourceExtname == .vue || resourceExtname == .js"
 				}
 			]
 		},
@@ -82,6 +87,10 @@
 			{
 				"command": "opencc.cn2en",
 				"title": "[ICS] 简体 => EN"
+			},
+			{
+				"command": "rapidTools.codeNav.refresh",
+				"title": "刷新代码导航"
 			}
 		],
 		"configuration": {
@@ -155,6 +164,7 @@
 	"scripts": {
 		"vscode:prepublish": "yarn run package",
 		"compile": "webpack",
+		"code-nav:analyze": "node dist/codeNavCli.js",
 		"watch": "webpack --watch",
 		"package": "webpack --mode production --devtool hidden-source-map",
 		"compile-tests": "tsc -p . --outDir out",
@@ -172,6 +182,7 @@
 		"@typescript-eslint/eslint-plugin": "^8.71.2",
 		"@typescript-eslint/parser": "^8.71.2",
 		"@vscode/test-electron": "^2.5.2",
+		"@vue/compiler-core": "^3.5.0",
 		"eslint": "^8.57.1",
 		"glob": "^11.1.0",
 		"mocha": "^11.8.0",
@@ -182,6 +193,7 @@
 	},
 	"dependencies": {
 		"@babel/parser": "^7.28.0",
+		"@babel/types": "^7.28.0",
 		"@vue/compiler-sfc": "^3.5.0",
 		"opencc-js": "^1.0.5"
 	}

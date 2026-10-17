@@ -1,0 +1,155 @@
+import { CodeNavResult, CodeRelation, NavNode, TemplateNode } from './codeNavTypes';
+
+export const PAGE_SIZE = 50;
+
+export interface PanelResult extends Omit<CodeNavResult, 'nodes' | 'paths' | 'template'> {
+    nodes: NavNode[];
+    paths: (CodeRelation & { index: number })[];
+    template: { rootEl: string | null; tree: (TemplateNode & { hasChildren?: boolean })[] } | null;
+    pagination: {
+        sections: Record<string, number>;
+        templateCount: number;
+        entryCount: number;
+        errorCount: number;
+    };
+}
+
+const scriptKeys = [
+    'exports', 'declarations', 'props', 'data', 'computed', 'watch', 'hooks'
+] as const;
+const nodeIndexes = new WeakMap<CodeNavResult, Map<string, NavNode>>();
+
+function nodeIndex(result: CodeNavResult): Map<string, NavNode> {
+    let index = nodeIndexes.get(result);
+    if (!index) {
+        index = new Map(result.nodes.map(node => [node.id, node]));
+        nodeIndexes.set(result, index);
+    }
+    return index;
+}
+
+export function sectionIds(result: CodeNavResult, key: string): string[] | undefined {
+    if (key === 'imports') { return result.imports; }
+    if (key.startsWith('group:')) {
+        const index = Number(key.slice(6));
+        if (!Number.isInteger(index) || index < 0) { return undefined; }
+        return result.script.groups[index]?.methods;
+    }
+    if (scriptKeys.some(item => item === key)) {
+        return result.script[key as typeof scriptKeys[number]];
+    }
+    return undefined;
+}
+
+export function sectionPage(result: CodeNavResult, key: string, offset: number): NavNode[] | undefined {
+    const ids = sectionIds(result, key);
+    if (!ids || !Number.isInteger(offset) || offset < 0 || offset >= Math.max(ids.length, 1)) {
+        return undefined;
+    }
+    const nodes = nodeIndex(result);
+    return ids.slice(offset, offset + PAGE_SIZE)
+        .map(id => nodes.get(id))
+        .filter((node): node is NavNode => node !== undefined);
+}
+
+function shallowTemplate(node: TemplateNode): TemplateNode & { hasChildren: boolean } {
+    return { ...node, hasChildren: node.children.length > 0, children: [] };
+}
+
+export function templatePage(
+    result: CodeNavResult, parentId: string | null, offset: number
+): { items: (TemplateNode & { hasChildren: boolean })[]; total: number } | undefined {
+    if (!result.template || !Number.isInteger(offset) || offset < 0) { return undefined; }
+    let children = result.template.tree;
+    if (parentId !== null) {
+        const stack = [...children];
+        let found: TemplateNode | undefined;
+        while (stack.length) {
+            const next = stack.pop()!;
+            if (next.id === parentId) {
+                found = next;
+                break;
+            }
+            stack.push(...next.children);
+        }
+        if (!found) { return undefined; }
+        children = found.children;
+    }
+    return {
+        total: children.length,
+        items: children.slice(offset, offset + PAGE_SIZE).map(shallowTemplate)
+    };
+}
+
+export function projectResult(result: CodeNavResult, focusId?: string): PanelResult {
+    const sections: Record<string, number> = { imports: result.imports.length };
+    for (const key of scriptKeys) { sections[key] = result.script[key].length; }
+    for (const [index, group] of result.script.groups.entries()) {
+        sections[`group:${index}`] = group.methods.length;
+    }
+    const guideEntries = result.guide.entries.slice(0, 8);
+    const selected = new Set([
+        ...guideEntries,
+        ...result.guide.state.slice(0, 12),
+        ...(focusId ? [focusId] : [])
+    ]);
+    const paths: PanelResult['paths'] = [];
+    if (focusId) {
+        for (const [index, edge] of result.paths.entries()) {
+            if (edge.to !== focusId || paths.length >= 30) { continue; }
+            paths.push({ ...edge, index });
+            selected.add(edge.from);
+        }
+    }
+    let frontier = new Set(selected);
+    for (let depth = 0; depth < 3 && frontier.size && paths.length < 120; depth++) {
+        const next = new Set<string>();
+        for (const [index, edge] of result.paths.entries()) {
+            if (!frontier.has(edge.from) || paths.length >= 120) { continue; }
+            paths.push({ ...edge, index });
+            if (edge.to) {
+                selected.add(edge.to);
+                next.add(edge.to);
+            }
+        }
+        frontier = next;
+    }
+    const script = { ...result.script };
+    for (const key of scriptKeys) {
+        const page = result.script[key].slice(0, PAGE_SIZE);
+        script[key] = page;
+        page.forEach(id => selected.add(id));
+    }
+    script.groups = result.script.groups.map(group => {
+        const methods = group.methods.slice(0, PAGE_SIZE);
+        methods.forEach(id => selected.add(id));
+        return { ...group, methods };
+    });
+    const imports = result.imports.slice(0, PAGE_SIZE);
+    imports.forEach(id => selected.add(id));
+    const template = result.template && {
+        rootEl: result.template.rootEl,
+        tree: result.template.tree.slice(0, PAGE_SIZE).map(shallowTemplate)
+    };
+    template?.tree.forEach(node => selected.add(node.id));
+    const nodes = result.nodes.filter(node => selected.has(node.id));
+    for (const node of nodes) {
+        node.children?.slice(0, PAGE_SIZE).forEach(id => selected.add(id));
+    }
+    return {
+        ...result,
+        nodes: result.nodes.filter(node => selected.has(node.id)),
+        paths,
+        imports,
+        script,
+        template,
+        guide: { ...result.guide, entries: guideEntries, state: result.guide.state.slice(0, 12) },
+        errors: result.errors.slice(0, 20),
+        pagination: {
+            sections,
+            templateCount: result.template?.tree.length ?? 0,
+            entryCount: result.guide.entries.length,
+            errorCount: result.errors.length
+        }
+    };
+}

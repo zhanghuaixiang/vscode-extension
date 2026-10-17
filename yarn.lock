@@ -19,7 +19,7 @@
   dependencies:
     "@babel/types" "^7.29.8"
 
-"@babel/types@^7.29.8":
+"@babel/types@^7.28.0", "@babel/types@^7.29.8":
   version "7.29.8"
   resolved "https://registry.npmmirror.com/@babel/types/-/types-7.29.8.tgz#1229eef31d85156d70fa3f4cd859376d0eaf6863"
   integrity sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==
@@ -304,7 +304,7 @@
     ora "^8.1.0"
     semver "^7.6.2"
 
-"@vue/compiler-core@3.5.44":
+"@vue/compiler-core@3.5.44", "@vue/compiler-core@^3.5.0":
   version "3.5.44"
   resolved "https://registry.npmmirror.com/@vue/compiler-core/-/compiler-core-3.5.44.tgz#6e5b3b56ec7747390dd8d20ee31717fc58106bb4"
   integrity sha512-k34nCytbK8PQ1gR2mGROYOw6Pnv/mumqIdrZ3x2tbyXZDWm7ViKGLTfdB+DRrWqEQsLgGJvn0WN9jBif5zCTLQ==
