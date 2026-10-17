@@ -431,14 +431,44 @@ button.timeline-name:hover { color: var(--accent); }
     font-size: 10px;
 }
 .ai-action:hover { color: var(--accent); border-color: var(--accent); }
+/* AI 正文按 markdown 排版：块级元素自己撑开间距，因此不再依赖 pre-wrap 保留换行。 */
 .ai-text {
     margin: 7px 0 0;
     color: var(--ink);
     font-size: 11px;
     line-height: 1.7;
     overflow-wrap: anywhere;
-    white-space: pre-wrap;
 }
+.ai-text > * { margin: 0; }
+.ai-text > * + * { margin-top: 5px; }
+.ai-p { color: var(--ink); }
+/* 标题只用于分层：面板里统一收敛为小号粗体，避免和面板自身的层级抢视线。 */
+.ai-h { color: var(--ink); font-size: 11px; font-weight: 700; letter-spacing: .01em; }
+.ai-list { padding-left: 16px; }
+.ai-list li + li { margin-top: 2px; }
+.ai-quote { padding-left: 8px; border-left: 2px solid var(--line); color: var(--muted); }
+.ai-code {
+    padding: 0 3px;
+    border-radius: 2px;
+    background: var(--vscode-textCodeBlock-background, rgba(255, 255, 255, .08));
+    color: var(--vscode-textPreformat-foreground, var(--accent));
+    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+}
+.ai-pre {
+    padding: 6px 8px;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, .22));
+    font: 10px/1.5 var(--vscode-editor-font-family, Consolas, monospace);
+    white-space: pre;
+}
+.ai-pre code { color: var(--ink); font: inherit; }
+/* 代码块的轻量着色：只区分注释 / 字符串 / 数字 / 关键字，颜色取自编辑器主题。 */
+.c-comment { color: var(--vscode-descriptionForeground, #899a9a); font-style: italic; }
+.c-string { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+.c-number { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+.c-keyword { color: var(--vscode-debugTokenExpression-boolean, #569cd6); }
 .ai-note { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
 .ai-refs { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; margin-top: 6px; }
 .ai-ref {

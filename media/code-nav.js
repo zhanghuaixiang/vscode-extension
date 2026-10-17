@@ -341,20 +341,117 @@
         return element;
     }
 
-    // 把 [L12] / [L12-L18] 渲染成可点击回源码的行号引用。
-    function aiText(text) {
-        const wrap = el('div', 'ai-text');
-        const pattern = /\[L(\d+)(?:\s*-\s*L?(\d+))?\]/g;
+    // AI 解读的极简 markdown 渲染。只覆盖模型实际会用的少量语法，不引入外部依赖；
+    // AI 输出属于不可信内容，全部走 textContent / createElement，绝不使用 innerHTML。
+    const AI_INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(\[L(\d+)(?:\s*-\s*L?(\d+))?\])/g;
+    const AI_FENCE = /^```\s*([\w+#.-]*)\s*$/;
+    const AI_CODE_LANG = /^(js|javascript|ts|typescript|jsx|tsx|vue|json|bash|sh|shell|zsh|css|html)$/;
+    const AI_CODE_TOKEN = /(\/\/[^\n]*|#\s[^\n]*)|('(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`)|(\b\d+(?:\.\d+)?\b)|(\b(?:const|let|var|function|return|else|if|for|while|new|await|async|import|from|export|default|class|extends|this|typeof|instanceof|try|catch|finally|throw|switch|case|break|continue|null|undefined|true|false|of|in|delete|void|yield|setup|props|emits|data|computed|watch|methods|mounted|created)\b)/g;
+
+    /** 代码块：仅对常见语言做一次轻量着色（注释 / 字符串 / 数字 / 关键字），其余语言按纯文本展示。 */
+    function aiCodeBlock(language, code) {
+        const pre = el('pre', 'ai-pre');
+        const body = el('code');
+        pre.append(body);
+        if (!AI_CODE_LANG.test(language)) { body.textContent = code; return pre; }
+        const pattern = new RegExp(AI_CODE_TOKEN.source, 'g');
+        let last = 0;
+        let match;
+        while ((match = pattern.exec(code))) {
+            if (match.index > last) body.append(document.createTextNode(code.slice(last, match.index)));
+            const kind = match[1] ? 'comment' : match[2] ? 'string' : match[3] ? 'number' : 'keyword';
+            body.append(el('span', `c-${kind}`, match[0]));
+            last = pattern.lastIndex;
+        }
+        if (last < code.length) body.append(document.createTextNode(code.slice(last)));
+        return pre;
+    }
+
+    /** 行内语法：`行内代码`、**加粗**、*斜体*，以及仍然可点击回源码的 [L12] / [L12-L18] 引用。 */
+    function aiInline(node, text) {
+        const pattern = new RegExp(AI_INLINE.source, 'g');
         let last = 0;
         let match;
         while ((match = pattern.exec(text))) {
-            if (match.index > last) wrap.append(document.createTextNode(text.slice(last, match.index)));
-            const jump = button(match[0], 'revealAiLine', undefined, 'ai-ref');
-            jump.dataset.line = String(Number(match[1]));
-            wrap.append(jump);
+            if (match.index > last) node.append(document.createTextNode(text.slice(last, match.index)));
+            if (match[1]) node.append(el('code', 'ai-code', match[1].slice(1, -1)));
+            else if (match[2]) node.append(el('strong', undefined, match[2].slice(2, -2)));
+            else if (match[3]) node.append(el('strong', undefined, match[3].slice(2, -2)));
+            else if (match[4]) node.append(el('em', undefined, match[4].slice(1, -1)));
+            else {
+                const jump = button(match[5], 'revealAiLine', undefined, 'ai-ref');
+                jump.dataset.line = String(Number(match[6]));
+                node.append(jump);
+            }
             last = pattern.lastIndex;
         }
-        if (last < text.length) wrap.append(document.createTextNode(text.slice(last)));
+        if (last < text.length) node.append(document.createTextNode(text.slice(last)));
+    }
+
+    /**
+     * 把 AI 输出按 markdown 排版：标题降级为 h3~h6、无序/有序列表、引用与围栏代码块。
+     * 解读本身被要求写得短，所以这里只做结构排版，不做折叠或分页。
+     */
+    function aiText(text) {
+        const wrap = el('div', 'ai-text');
+        const lines = String(text || '').split(/\r?\n/);
+        let list = null;
+        let quote = null;
+        const closeBlocks = () => { list = null; quote = null; };
+
+        for (let index = 0; index < lines.length; index++) {
+            const line = lines[index].trim();
+            if (!line) { closeBlocks(); continue; }
+
+            const fence = line.match(AI_FENCE);
+            if (fence) {
+                closeBlocks();
+                const body = [];
+                for (index++; index < lines.length && !/^```/.test(lines[index].trim()); index++) {
+                    body.push(lines[index]);
+                }
+                wrap.append(aiCodeBlock(fence[1].toLowerCase(), body.join('\n')));
+                continue;
+            }
+
+            const heading = line.match(/^(#{1,4})\s+(.*)$/);
+            if (heading) {
+                closeBlocks();
+                const title = el(`h${Math.min(2 + heading[1].length, 6)}`, 'ai-h');
+                aiInline(title, heading[2]);
+                wrap.append(title);
+                continue;
+            }
+
+            const bullet = line.match(/^[-*+]\s+(.*)$/);
+            const ordered = line.match(/^\d+[.)]\s+(.*)$/);
+            if (bullet || ordered) {
+                quote = null;
+                if (!list || (list.tagName === 'UL') !== Boolean(bullet)) {
+                    list = el(bullet ? 'ul' : 'ol', 'ai-list');
+                    wrap.append(list);
+                }
+                const item = el('li');
+                aiInline(item, bullet ? bullet[1] : ordered[1]);
+                list.append(item);
+                continue;
+            }
+
+            const quoted = line.match(/^>\s?(.*)$/);
+            if (quoted) {
+                list = null;
+                if (!quote) { quote = el('blockquote', 'ai-quote'); wrap.append(quote); }
+                const paragraph = el('p');
+                aiInline(paragraph, quoted[1]);
+                quote.append(paragraph);
+                continue;
+            }
+
+            closeBlocks();
+            const paragraph = el('p', 'ai-p');
+            aiInline(paragraph, line);
+            wrap.append(paragraph);
+        }
         return wrap;
     }
 

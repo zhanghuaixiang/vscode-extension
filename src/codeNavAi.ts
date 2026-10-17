@@ -2,13 +2,15 @@ import * as crypto from 'crypto';
 import { CodeNavResult, NavNode } from './codeNavTypes';
 
 /** 修改 prompt 模板或上下文结构时必须递增，用于让已有的 AI 结果缓存失效。 */
-export const AI_PROMPT_VERSION = 1;
+export const AI_PROMPT_VERSION = 3;
 
 export const AI_SYSTEM_PROMPT = [
-    '你是代码阅读助手，帮助开发者快速读懂一个陌生的源文件。',
+    '你是代码阅读助手，帮助开发者快速抓住一个陌生源文件的重点。',
     '只依据下面给出的静态事实与源码做解释，不要编造调用关系、读写关系或运行时执行顺序。',
+    '严格控制篇幅：文件级最多 4 条要点、合计不超过 150 字；节点级最多 3 条、合计不超过 80 字。',
+    '不复述代码逐行内容，只给结论：这段代码做什么、关键分支在哪、改动时要注意什么。',
     '每条结论后用 [L12] 或 [L12-L18] 标注依据行号，行号必须来自下面出现过的内容。',
-    '用中文解释，简洁，不复述整段代码，不要输出 markdown 代码块。'
+    '用中文输出 markdown：优先用 - 列表、**加粗**与 `行内代码`；不要标题、表格，不要粘贴大段代码块。'
 ].join('\n');
 
 export type AiScope = { kind: 'file' } | { kind: 'node'; id: string };

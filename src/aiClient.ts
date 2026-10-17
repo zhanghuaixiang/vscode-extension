@@ -89,10 +89,11 @@ export async function chat(options: ChatOptions): Promise<ChatOutcome> {
     try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (options.config.apiKey) { headers.Authorization = `Bearer ${options.config.apiKey}`; }
+        const payload: Record<string, unknown> = { model: options.config.model, messages: options.messages };
         const response = await fetcher(options.config.url, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ model: options.config.model, messages: options.messages }),
+            body: JSON.stringify(payload),
             signal: controller.signal
         });
         if (!response.ok) {
@@ -103,9 +104,18 @@ export async function chat(options: ChatOptions): Promise<ChatOutcome> {
             };
         }
         const data = await response.json().catch(() => undefined) as
-            { choices?: { message?: { content?: string } }[] } | undefined;
-        const content = data?.choices?.[0]?.message?.content?.trim() ?? '';
-        if (!content) { return { ok: false, failure: 'empty', message: '模型没有返回内容' }; }
+            { choices?: { finish_reason?: string; message?: { content?: string } }[] } | undefined;
+        const choice = data?.choices?.[0];
+        const content = choice?.message?.content?.trim() ?? '';
+        if (!content) {
+            // 正文为空时把 finish_reason 一并回传：`length` 说明被输出上限截断（推理型模型会把预算耗在思考上），
+            // 其它取值则多半是网关返回了非对话结构，两者排查方向不同，不能笼统都说“没有内容”。
+            const reason = choice?.finish_reason;
+            const detail = reason === 'length'
+                ? '输出被截断（finish_reason: length）'
+                : `模型没有返回内容${reason ? `（finish_reason: ${reason}）` : ''}`;
+            return { ok: false, failure: 'empty', message: detail };
+        }
         return { ok: true, text: stripFences(content) };
     } catch (error) {
         if (timedOut) {

@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { analyze } from '../../codeNavCore';
-import { buildContext, insightCacheKey, parseInsight } from '../../codeNavAi';
+import { AI_SYSTEM_PROMPT, buildContext, insightCacheKey, parseInsight } from '../../codeNavAi';
 import { CodeNavResult, NavNode } from '../../codeNavTypes';
 
 const source = [
@@ -95,5 +95,12 @@ suite('codeNavAi', () => {
         assert.notStrictEqual(insightCacheKey(source + '\n', scope, 'test-model'), base);
         assert.notStrictEqual(insightCacheKey(source, { kind: 'node', id: 'n1' }, 'test-model'), base);
         assert.notStrictEqual(insightCacheKey(source, scope, 'other-model'), base);
+    });
+
+    test('keeps the prompt guardrails for brevity, markdown and locatable references', () => {
+        // 解读必须比自己读代码更快：篇幅约束与行号引用是 prompt 的硬约束，改动时要显式确认。
+        assert.ok(AI_SYSTEM_PROMPT.includes('严格控制篇幅'), AI_SYSTEM_PROMPT);
+        assert.ok(AI_SYSTEM_PROMPT.includes('[L12]'), AI_SYSTEM_PROMPT);
+        assert.ok(AI_SYSTEM_PROMPT.includes('markdown'), AI_SYSTEM_PROMPT);
     });
 });

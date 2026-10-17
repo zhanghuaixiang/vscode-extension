@@ -63,6 +63,30 @@ suite('aiClient', () => {
         assert.strictEqual(outcome.ok && outcome.text, '它是一个计数器 [L10]');
     });
 
+    test('reports the finish reason when the payload carries no content', async () => {
+        // 推理型网关会把输出预算耗在思考上，正文字段可能是空的；此时 finish_reason 是唯一线索。
+        const truncated: Fetcher = async () => jsonResponse({ choices: [{ finish_reason: 'length', message: { content: '   ' } }] });
+        const other: Fetcher = async () => jsonResponse({ choices: [{ finish_reason: 'content_filter', message: {} }] });
+
+        const cut = failureOf(await chat({ config: CONFIG, messages: [], fetcher: truncated }));
+        const filtered = failureOf(await chat({ config: CONFIG, messages: [], fetcher: other }));
+
+        assert.strictEqual(cut.failure, 'empty');
+        assert.ok(cut.message.includes('截断'), cut.message);
+        assert.ok(filtered.message.includes('content_filter'), filtered.message);
+    });
+
+    test('does not send an output cap, so reasoning models keep their full budget', async () => {
+        let body: Record<string, unknown> = {};
+        const fetcher: Fetcher = async (_url, init) => {
+            body = JSON.parse(String(init.body));
+            return jsonResponse({ choices: [{ message: { content: 'ok' } }] });
+        };
+        await chat({ config: CONFIG, messages: [], fetcher });
+        assert.strictEqual('max_tokens' in body, false, JSON.stringify(body));
+        assert.deepStrictEqual(body, { model: 'test-model', messages: [] });
+    });
+
     test('degrades http errors to a message instead of throwing', async () => {
         const fetcher: Fetcher = async () => jsonResponse({ error: 'boom' }, 500, 'Internal Server Error');
         const outcome = failureOf(await chat({ config: CONFIG, messages: [], fetcher }));
