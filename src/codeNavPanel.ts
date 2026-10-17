@@ -1,5 +1,8 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
+import { AiInsightCache, chat } from './aiClient';
+import { AI_SETTINGS_QUERY, AI_SETTING_KEYS, readAiSettings } from './aiConfig';
+import { AI_SYSTEM_PROMPT, AiInsight, AiScope, buildContext, insightCacheKey, isKnownLine, parseInsight, scopeKey } from './codeNavAi';
 import { analyze } from './codeNavCore';
 import { PAGE_SIZE, projectResult, sectionIds, sectionPage, templatePage } from './codeNavProjection';
 import { AnalysisCancelled, AnalysisTask, runAnalysis } from './codeNavRunner';
@@ -35,11 +38,20 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
     private mode: 'file' | 'function' = 'file';
     private focusId?: string;
     private focusMessage = '';
+    private readonly aiCache = new AiInsightCache();
+    private readonly aiPending = new Map<string, AbortController>();
 
     constructor(private readonly context: vscode.ExtensionContext) {
         context.subscriptions.push(vscode.window.registerWebviewViewProvider(CodeNavPanel.viewId, this));
         context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor => this.setEditor(editor)));
         context.subscriptions.push({ dispose: () => this.running?.cancel() });
+        context.subscriptions.push({ dispose: () => this.cancelAi() });
+        // AI 配置变化后立即刷新面板：用户在设置页改完不必重启窗口。
+        context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+            if (!AI_SETTING_KEYS.some(key => event.affectsConfiguration(key))) { return; }
+            this.cancelAi();
+            this.publish();
+        }));
         context.subscriptions.push(vscode.commands.registerCommand('rapidTools.codeNav.refresh', () => this.refresh()));
         context.subscriptions.push(vscode.commands.registerCommand(
             'rapidTools.codeNav.focusFunction', () => this.focusFunction()
@@ -130,6 +142,17 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
                 case 'revealLine':
                     if (Number.isInteger(message.line)) { void this.revealLine(message.line); }
                     break;
+                case 'revealAiLine':
+                    if (Number.isInteger(message.line)) { void this.revealAiLine(message.line); }
+                    break;
+                case 'aiInsight':
+                    if (typeof message.scope === 'string') {
+                        void this.requestInsight(message.scope, message.force === true);
+                    }
+                    break;
+                case 'configure':
+                    void vscode.commands.executeCommand('workbench.action.openSettings', AI_SETTINGS_QUERY);
+                    break;
                 case 'pageSection':
                     if (message.publicationId === this.publicationId
                         && typeof message.key === 'string' && Number.isInteger(message.offset)
@@ -167,6 +190,7 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
         this.requestId++;
         this.running?.cancel();
         this.running = undefined;
+        this.cancelAi();
         this.editor = editor;
         this.snapshot = undefined;
         this.renderedFile = undefined;
@@ -226,6 +250,7 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
         const request = ++this.requestId;
         this.running?.cancel();
         this.running = undefined;
+        this.cancelAi();
         const document = this.editor?.document;
         if (!document || !/\.(vue|js)$/i.test(document.fileName)) {
             this.status = 'unsupported';
@@ -290,6 +315,7 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
     private publish(): void {
         if (!this.view || !this.rendererReady) { return; }
         const publicationId = ++this.publicationId;
+        const settings = readAiSettings();
         void this.view.webview.postMessage({
             type: 'state',
             publicationId,
@@ -298,13 +324,99 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
             file: this.editor?.document.uri.toString(),
             name: this.editor?.document.fileName,
             version: this.snapshot?.version,
+            snapshotId: this.snapshot?.fingerprint,
             durationMs: this.snapshot?.durationMs,
             mode: this.mode,
             focusId: this.focusId,
             focusMessage: this.focusMessage,
+            ai: { enabled: settings.enabled, issue: settings.issue, model: settings.gateway.model },
             result: this.status === 'ready' && this.snapshot
                 ? projectResult(this.snapshot.result, this.focusId) : undefined
         });
+    }
+
+    /** 切换文件或重新分析时作废所有在途 AI 请求，避免旧回答落到新文件上。 */
+    private cancelAi(): void {
+        for (const controller of this.aiPending.values()) { controller.abort(); }
+        this.aiPending.clear();
+    }
+
+    /**
+     * 面板内 AI 解读：未启用或网关未配置时**不发任何请求**，只回一条配置提示。
+     * 结果按缓存键去重，文件改变后旧结果自然失效（缓存键含文件文本）。
+     */
+    private async requestInsight(scope: string, force: boolean): Promise<void> {
+        const snapshot = this.snapshot;
+        const document = this.editor?.document;
+        if (!snapshot || !document || document.uri.toString() !== snapshot.uri
+            || document.version !== snapshot.version) {
+            // 文件已改动：重新分析并让面板按新的 snapshotId 清空旧解读。
+            this.refresh();
+            return;
+        }
+        const snapshotId = snapshot.fingerprint;
+        const target: AiScope = scope === 'file' ? { kind: 'file' } : { kind: 'node', id: scope };
+        const settings = readAiSettings();
+        if (!settings.enabled || settings.issue) {
+            this.replyInsight(snapshotId, scope, undefined, settings.issue || '未启用 AI 解读');
+            return;
+        }
+        const source = document.getText();
+        const key = insightCacheKey(source, target, settings.gateway.model);
+        const cached = force ? undefined : this.aiCache.get(key);
+        if (cached) { this.replyInsight(snapshotId, scope, cached); return; }
+        if (this.aiPending.has(key)) { return; }
+        const controller = new AbortController();
+        this.aiPending.set(key, controller);
+        try {
+            const outcome = await chat({
+                config: settings.gateway,
+                messages: [
+                    { role: 'system', content: AI_SYSTEM_PROMPT },
+                    { role: 'user', content: buildContext(snapshot.result, source, target) }
+                ],
+                signal: controller.signal
+            });
+            if (!outcome.ok) {
+                // 主动取消（切文件/刷新）不再打扰用户，其余失败降级为一条提示。
+                if (outcome.failure !== 'aborted') { this.replyInsight(snapshotId, scope, undefined, outcome.message); }
+                return;
+            }
+            const insight = parseInsight(outcome.text, snapshot.result, settings.gateway.model, scopeKey(target));
+            this.aiCache.set(key, insight);
+            this.replyInsight(snapshotId, scope, insight);
+        } finally {
+            this.aiPending.delete(key);
+        }
+    }
+
+    /** 回传 AI 结果；文件快照已经变化时直接丢弃，避免把旧内容接到新文件上。 */
+    private replyInsight(snapshotId: string, scope: string, insight?: AiInsight, message?: string): void {
+        if (!this.view || this.snapshot?.fingerprint !== snapshotId) { return; }
+        void this.view.webview.postMessage({
+            type: 'aiInsight',
+            snapshotId,
+            scope,
+            state: insight ? 'ready' : 'error',
+            text: insight?.text,
+            evidence: insight?.evidence,
+            dropped: insight?.dropped,
+            model: insight?.model,
+            message
+        });
+    }
+
+    /** AI 引用行跳转：只允许跳到本文件节点覆盖过的行，与行号校验共用白名单。 */
+    private async revealAiLine(line: number): Promise<void> {
+        const snapshot = this.snapshot;
+        const document = this.editor?.document;
+        if (!snapshot || !document || document.uri.toString() !== snapshot.uri
+            || document.version !== snapshot.version) {
+            this.refresh();
+            return;
+        }
+        if (!isKnownLine(snapshot.result, line)) { return; }
+        await this.revealPosition(document, { startLine: line, startColumn: 1, endLine: line, endColumn: 1 });
     }
 
     private async revealNode(id: string, relationIndex?: number): Promise<void> {

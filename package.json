@@ -97,6 +97,26 @@
 			"type": "object",
 			"title": "rapid-tools",
 			"properties": {
+				"AI.baseUrl": {
+					"type": "string",
+					"default": "",
+					"description": "大模型接口地址（OpenAI 兼容，如 https://host/v1/chat/completions）"
+				},
+				"AI.model": {
+					"type": "string",
+					"default": "yunzhongzi",
+					"description": "大模型名称，简繁英转换与代码理解 AI 解读共用"
+				},
+				"AI.apiKey": {
+					"type": "string",
+					"default": "",
+					"description": "大模型接口密钥，按 Authorization: Bearer 发送；内网网关无需鉴权时留空"
+				},
+				"AI.enable": {
+					"type": "boolean",
+					"default": false,
+					"description": "代码理解面板的 AI 解读开关（默认关闭；关闭时不发起任何请求）"
+				},
 				"Converter.ctEnable": {
 					"type": "boolean",
 					"default": false,
@@ -112,20 +132,10 @@
 					],
 					"description": "繁体类型"
 				},
-				"Converter.enUrl": {
-					"type": "string",
-					"default": "",
-					"description": "大模型API接口"
-				},
 				"Converter.enLabel": {
 					"type": "string",
 					"default": "你现在的角色是一个翻译，接下来我会向你发送一些中文，请将我接下来发给你的中文直接翻译成英文。",
-					"description": "大模型API前置对话"
-				},
-				"Converter.AIModel": {
-					"type": "string",
-					"default": "yunzhongzi",
-					"description": "大模型API模型"
+					"description": "简转EN 的提示词（大模型API前置对话）"
 				},
 				"I18n.enable": {
 					"type": "boolean",

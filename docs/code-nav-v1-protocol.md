@@ -61,3 +61,17 @@ CLI 将**单行 JSON**写入 stdout；退出码 `0` 表示无解析诊断，`2` 
 - `contract.flows` 只覆盖本文件可见的具名状态；模板引用来自元素属性表达式（例如 `:item="x"`、`@click="x"`），纯文本插值 `{{ x }}` 暂不计入 `templateLines`。跨文件读写、动态键、运行时真实执行顺序都不在 v1 范围内。
 - `timeline` 的顺序是源码出现位置的推定，不解释 `watch` 的触发时机或异步先后；`functions[].callers` / `callees` / `writes` 只包含本文件内唯一可确定的调用与写入，外部依赖一律不计。
 - 巨型文件应由 worker 分析，M2/M3 再实现结果缓存、首屏裁剪和面板懒渲染。M0 的 Webview 资源探针暂留作集成回归，下一阶段由正式面板替代。
+
+## AI 解读（A 阶段，独立通道）
+
+AI 解读**不属于 v1 协议**：`CodeNavResult` 不含任何模型产出，`analyze()` 永不联网，AI 关闭时面板行为与本文档描述完全一致且零网络请求。实现与边界见 `docs/code-nav-ai-plan.md`。
+
+面板与扩展宿主之间额外使用三条消息，均以文件文本指纹 `snapshotId` 判定有效期：
+
+| 方向 | 消息 | 说明 |
+| --- | --- | --- |
+| 面板 → 宿主 | `aiInsight` `{ scope, force? }` | `scope` 为 `'file'` 或节点 id；`force` 跳过缓存重新生成 |
+| 宿主 → 面板 | `aiInsight` `{ snapshotId, scope, state, text, evidence, dropped, model, message }` | `state` 为 `ready` 或 `error`；`evidence` 是校验通过的行号 |
+| 面板 → 宿主 | `revealAiLine` `{ line }` | 只跳转到本文件节点覆盖过的行（与 `parseInsight` 共用白名单） |
+
+`state` 消息新增 `snapshotId`（文件文本 sha256）与 `ai: { enabled, issue, model }`；面板据此在文件内容变化时整体作废旧的解读。AI 结论中的 `[L12]` / `[L12-L18]` 引用会被逐行校验，越界引用整条丢弃并计入 `dropped`，因此**面板显示的 AI 行号必定落在本文件节点范围内**，但仍是模型推断，不构成 `certainty: "certain"`。

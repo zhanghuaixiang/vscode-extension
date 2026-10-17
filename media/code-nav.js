@@ -4,6 +4,10 @@
     const root = document.getElementById('app');
     let state = { status: 'unsupported', message: '打开 .vue 或 .js 文件开始阅读' };
     let tab = 'guide';
+    // AI 解读只存在于面板内：按 scope（'file' 或节点 id）分别记录结果、生成中与失败。
+    let aiResult = new Map();
+    let aiPending = new Set();
+    let aiError = new Map();
 
     function el(tag, className, text) {
         const element = document.createElement(tag);
@@ -159,6 +163,7 @@
             head.append(button(flow.name, 'reveal', flow.id, 'flow-name'));
             if (item) head.append(el('span', 'contract-kind', item.kind));
             head.append(el('span', 'line-mark', item ? `L${item.range.startLine}` : ''));
+            head.append(aiButton(flow.id));
             row.append(head);
             const reads = flowRefs(flow.reads, nodes, '读取');
             const writes = flowRefs(flow.writes, nodes, '写入');
@@ -179,6 +184,9 @@
             if (!reads && !writes && !watches && !flow.templateLines.length) {
                 row.append(el('div', 'contract-note', '本文件内未见读写或模板引用。'));
             }
+            const host = el('div', 'ai-host');
+            host.dataset.aiScope = flow.id;
+            row.append(host);
             list.append(row);
         }
         return list;
@@ -289,6 +297,7 @@
             const head = el('div', 'node-row');
             head.append(button(card.signature, 'reveal', card.id, 'fn-signature'));
             head.append(el('span', 'line-mark', `L${card.line}`));
+            head.append(aiButton(card.id));
             box.append(head);
             const flags = el('div', 'fn-flags');
             if (card.isAsync) flags.append(el('span', 'contract-flag', 'async'));
@@ -305,6 +314,9 @@
             if (!callers && !callees && !writes) {
                 box.append(el('div', 'contract-note', '本文件内未见调用或状态写入。'));
             }
+            const host = el('div', 'ai-host');
+            host.dataset.aiScope = card.id;
+            box.append(host);
             list.append(box);
         }
         section.append(list);
@@ -313,6 +325,129 @@
                 `还有 ${total - FUNCTION_LIMIT} 个函数，可切换到完整结构查看。`));
         }
         return section;
+    }
+
+    // AI 解读区块：与源码事实（.doc-block / 静态结论）在视觉上明确区分。
+    function configureButton() {
+        return button('去配置', 'configure', undefined, 'ai-action');
+    }
+
+    function aiButton(scope) {
+        const pending = aiPending.has(scope);
+        const element = button(pending ? 'AI …' : 'AI', 'aiAsk', scope,
+            `ai-button${pending ? ' busy' : ''}${aiResult.has(scope) || aiError.has(scope) ? ' done' : ''}`);
+        element.disabled = pending;
+        element.title = '生成这段代码的 AI 解读';
+        return element;
+    }
+
+    // 把 [L12] / [L12-L18] 渲染成可点击回源码的行号引用。
+    function aiText(text) {
+        const wrap = el('div', 'ai-text');
+        const pattern = /\[L(\d+)(?:\s*-\s*L?(\d+))?\]/g;
+        let last = 0;
+        let match;
+        while ((match = pattern.exec(text))) {
+            if (match.index > last) wrap.append(document.createTextNode(text.slice(last, match.index)));
+            const jump = button(match[0], 'revealAiLine', undefined, 'ai-ref');
+            jump.dataset.line = String(Number(match[1]));
+            wrap.append(jump);
+            last = pattern.lastIndex;
+        }
+        if (last < text.length) wrap.append(document.createTextNode(text.slice(last)));
+        return wrap;
+    }
+
+    function aiBlock(scope) {
+        const info = state.ai || {};
+        const result = aiResult.get(scope);
+        const error = aiError.get(scope);
+        const pending = aiPending.has(scope);
+        // 节点级区块只在有内容时出现，避免每张卡片都多出一块空档。
+        if (scope !== 'file' && !pending && !result && !error) return null;
+        const block = el('section', 'ai-block');
+        const head = el('div', 'ai-head');
+        head.append(el('span', 'ai-badge', 'AI 推断'));
+        head.append(el('span', 'ai-title', scope === 'file' ? 'AI 解读' : 'AI 节点解读'));
+        if (pending) {
+            head.append(el('span', 'ai-status', '正在生成…'));
+        } else if (result) {
+            head.append(el('span', 'ai-status', `模型 ${result.model || info.model || '未注明'}`));
+            head.append(button('重新生成', 'aiForce', scope, 'ai-action'));
+        }
+        block.append(head);
+        if (pending) {
+            block.append(el('p', 'ai-note', '正在请求模型，结论会带上可点击的行号。'));
+            return block;
+        }
+        if (error) {
+            block.append(el('p', 'ai-note', error));
+            if (info.issue) block.append(configureButton());
+            else block.append(button('重试', 'aiForce', scope, 'ai-action'));
+            return block;
+        }
+        if (result) {
+            if (result.text) block.append(aiText(result.text));
+            else block.append(el('p', 'ai-note', '模型没有给出可定位的解读。'));
+            if (result.dropped) {
+                block.append(el('p', 'ai-note',
+                    `已过滤 ${result.dropped} 处无法定位到本文件的行号引用。`));
+            }
+            const evidence = result.evidence || [];
+            if (evidence.length) {
+                const refs = el('div', 'ai-refs');
+                refs.append(el('span', 'ai-note', '依据行：'));
+                for (const line of evidence.slice(0, 12)) {
+                    const jump = button(`L${line}`, 'revealAiLine', undefined, 'ai-ref');
+                    jump.dataset.line = String(line);
+                    refs.append(jump);
+                }
+                block.append(refs);
+            }
+            block.append(el('p', 'ai-note', '以上为模型推断，仅供阅读参考；源码事实以上方静态结论为准。'));
+            return block;
+        }
+        if (!info.enabled) {
+            block.append(el('p', 'ai-note',
+                '未启用 AI 解读。开启后只发送结构化摘要与必要的源码切片，不会上传整个工作区。'));
+            block.append(configureButton());
+            return block;
+        }
+        if (info.issue) {
+            block.append(el('p', 'ai-note', info.issue));
+            block.append(configureButton());
+            return block;
+        }
+        block.append(el('p', 'ai-note', scope === 'file'
+            ? '按需生成一段解读：只依据上面的静态事实，结论带行号，可点击回到源码。'
+            : '生成该节点的解读：只依据本文件静态事实与这段源码。'));
+        block.append(button(scope === 'file' ? '生成解读' : '生成节点解读', 'aiAsk', scope, 'ai-action'));
+        return block;
+    }
+
+    // 只刷新 AI 相关 DOM，避免整页重绘导致滚动位置跳动。
+    function refreshAi() {
+        for (const host of root.querySelectorAll('[data-ai-scope]')) {
+            const block = aiBlock(host.dataset.aiScope);
+            host.replaceChildren();
+            if (block) host.append(block);
+        }
+        for (const element of root.querySelectorAll('.ai-button')) {
+            const scope = element.dataset.value;
+            const pending = aiPending.has(scope);
+            element.textContent = pending ? 'AI …' : 'AI';
+            element.disabled = pending;
+            element.className = `ai-button${pending ? ' busy' : ''}${
+                aiResult.has(scope) || aiError.has(scope) ? ' done' : ''}`;
+        }
+    }
+
+    function requestAi(scope, force) {
+        aiPending.add(scope);
+        aiError.delete(scope);
+        if (force) aiResult.delete(scope);
+        refreshAi();
+        vscode.postMessage({ type: 'aiInsight', scope, force: force || undefined });
     }
 
     function renderHeader() {
@@ -444,6 +579,10 @@
         }
         const hint = el('p', 'hint', '摘要与实际连线都只来自本文件；连线不代表完整运行时路径。');
         content.append(hint);
+        // 文件级 AI 解读：与「作者原话」并列，但视觉上明确标为模型推断。
+        const aiHost = el('div', 'ai-host');
+        aiHost.dataset.aiScope = 'file';
+        content.append(aiHost);
         if (result.errors.length) {
             const warning = el('div', 'diagnostic',
                 `${result.pagination?.errorCount ?? result.errors.length} 处解析提示；已保留可识别的结构。`);
@@ -656,6 +795,7 @@
             type: 'applied', file: state.file, status: state.status,
             publicationId: state.publicationId
         });
+        refreshAi();
         loadOpenTemplatePages();
     }
 
@@ -672,6 +812,14 @@
             vscode.postMessage({ type: 'refresh' });
         } else if (action === 'revealLine') {
             vscode.postMessage({ type: 'revealLine', line: Number(target.dataset.line) });
+        } else if (action === 'revealAiLine') {
+            vscode.postMessage({ type: 'revealAiLine', line: Number(target.dataset.line) });
+        } else if (action === 'aiAsk') {
+            requestAi(target.dataset.value, false);
+        } else if (action === 'aiForce') {
+            requestAi(target.dataset.value, true);
+        } else if (action === 'configure') {
+            vscode.postMessage({ type: 'configure' });
         } else if (action === 'reveal' || action === 'evidence') {
             vscode.postMessage({
                 type: 'reveal',
@@ -696,8 +844,24 @@
         const message = event.data;
         if (message?.type === 'state') {
             if (state.file !== message.file) tab = 'guide';
+            // 文件内容或模型变化时整体作废旧解读，不静默沿用（等价于提示重新生成）。
+            const model = (message.ai || {}).model;
+            if (state.snapshotId !== message.snapshotId || (state.ai || {}).model !== model) {
+                aiResult = new Map();
+                aiPending = new Set();
+                aiError = new Map();
+            }
             state = message;
             render();
+        } else if (message?.type === 'aiInsight' && message.snapshotId === state.snapshotId) {
+            aiPending.delete(message.scope);
+            if (message.state === 'ready') {
+                aiResult.set(message.scope, message);
+                aiError.delete(message.scope);
+            } else {
+                aiError.set(message.scope, message.message || 'AI 解读失败');
+            }
+            refreshAi();
         } else if (message?.type === 'sectionPage' && message.publicationId === state.publicationId) {
             const section = [...root.querySelectorAll('[data-section-key]')]
                 .find(item => item.dataset.sectionKey === message.key);
