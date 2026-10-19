@@ -3,7 +3,7 @@
 	"publisher": "zhanghuaixiang",
 	"displayName": "rapid-tools",
 	"description": "ics-vscode 插件",
-	"version": "0.0.4",
+	"version": "0.0.5",
 	"icon": "images/icon.png",
 	"repository": "https://github.com/zhanghuaixiang/vscode-extension.git",
 	"engines": {

@@ -17,3 +17,5 @@ dist/codeNavM0Core.js
 dist/codeNavM0Core.js.LICENSE.txt
 dist/codeNavM0Worker.js
 dist/codeNavM0Worker.js.LICENSE.txt
+docs/**
+sumary.md
