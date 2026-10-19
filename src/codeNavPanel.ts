@@ -4,11 +4,17 @@ import { AiInsightCache, chat } from './aiClient';
 import { AI_SETTINGS_QUERY, AI_SETTING_KEYS, readAiSettings } from './aiConfig';
 import { AI_SYSTEM_PROMPT, AiInsight, AiScope, buildContext, insightCacheKey, isKnownLine, parseInsight, scopeKey } from './codeNavAi';
 import { analyze } from './codeNavCore';
-import { PAGE_SIZE, projectResult, sectionIds, sectionPage, templatePage } from './codeNavProjection';
+import { CrossRefResult, findImporters, findSymbolSites } from './codeNavCrossRef';
+import { ContractCheckResult, verifyContract } from './codeNavContract';
+import { GitTrace, traceRange } from './codeNavGit';
+import { PAGE_SIZE, matchNodes, projectResult, sectionIds, sectionPage, templatePage } from './codeNavProjection';
 import { AnalysisCancelled, AnalysisTask, runAnalysis } from './codeNavRunner';
 import { CodeNavResult, SourceRange } from './codeNavTypes';
 
 type PanelStatus = 'unsupported' | 'loading' | 'ready' | 'error';
+
+/** 面板内检索的结果条数上限：命中再多也只回这么多，避免一次消息体过大。 */
+const SEARCH_LIMIT = 60;
 
 interface Snapshot {
     uri: string;
@@ -25,7 +31,7 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
     private editor?: vscode.TextEditor;
     private snapshot?: Snapshot;
     private status: PanelStatus = 'unsupported';
-    private message = '打开 .vue 或 .js 文件开始阅读';
+    private message = '打开 .vue、.js 或 .ts 文件开始阅读';
     private rendererReady = false;
     private renderedFile?: string;
     private refreshCount = 0;
@@ -38,14 +44,28 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
     private mode: 'file' | 'function' = 'file';
     private focusId?: string;
     private focusMessage = '';
+    private messageListener?: vscode.Disposable;
     private readonly aiCache = new AiInsightCache();
     private readonly aiPending = new Map<string, AbortController>();
+    private crossRef?: AbortController;
+    private readonly crossPending = new Set<string>();
+    /** 每次切换文件或重新分析都自增，用于丢弃上一份文件的跨文件检索结果。 */
+    private crossRefToken = 0;
+    /** 最近一次跨文件结果里出现过的文件，只有这些文件允许被面板打开。 */
+    private crossRefFiles = new Set<string>();
+    private gitTrace?: AbortController;
+    private readonly gitTracePending = new Set<string>();
+    /** 与 crossRefToken 同理：文件一变，在途的 blame 结果作废。 */
+    private gitTraceToken = 0;
+    private contract?: AbortController;
+    private contractPending = false;
+    private contractToken = 0;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         context.subscriptions.push(vscode.window.registerWebviewViewProvider(CodeNavPanel.viewId, this));
         context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor => this.setEditor(editor)));
         context.subscriptions.push({ dispose: () => this.running?.cancel() });
-        context.subscriptions.push({ dispose: () => this.cancelAi() });
+        context.subscriptions.push({ dispose: () => { this.cancelAi(); this.crossRef?.abort(); this.gitTrace?.abort(); this.contract?.abort(); this.messageListener?.dispose(); } });
         // AI 配置变化后立即刷新面板：用户在设置页改完不必重启窗口。
         context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
             if (!AI_SETTING_KEYS.some(key => event.affectsConfiguration(key))) { return; }
@@ -92,6 +112,8 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
     }
 
     resolveWebviewView(view: vscode.WebviewView): void {
+        // 视图隐藏后再次显示时本方法会被重新调用，旧监听必须释放，否则订阅只增不减。
+        this.messageListener?.dispose();
         this.view = view;
         const media = vscode.Uri.joinPath(this.context.extensionUri, 'media');
         view.webview.options = { enableScripts: true, localResourceRoots: [media] };
@@ -112,7 +134,7 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
   <script nonce="${nonce}" src="${js}"></script>
 </body>
 </html>`;
-        this.context.subscriptions.push(view.webview.onDidReceiveMessage(message => {
+        this.messageListener = view.webview.onDidReceiveMessage(message => {
             if (!message || typeof message.type !== 'string') { return; }
             switch (message.type) {
                 case 'ready':
@@ -153,6 +175,27 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
                 case 'configure':
                     void vscode.commands.executeCommand('workbench.action.openSettings', AI_SETTINGS_QUERY);
                     break;
+                case 'crossRef':
+                    if (typeof message.value === 'string'
+                        && (message.kind === 'importers' || message.kind === 'symbol')) {
+                        void this.runCrossRef(message.kind, message.value,
+                            typeof message.id === 'string' ? message.id : undefined);
+                    }
+                    break;
+                case 'openLocation':
+                    if (typeof message.file === 'string' && Number.isInteger(message.line)) {
+                        void this.openLocation(message.file, message.line);
+                    }
+                    break;
+                case 'gitTrace':
+                    if (typeof message.id === 'string') { void this.runGitTrace(message.id); }
+                    break;
+                case 'contractCheck':
+                    void this.runContractCheck();
+                    break;
+                case 'filter':
+                    if (typeof message.text === 'string') { this.searchNodes(message.text); }
+                    break;
                 case 'pageSection':
                     if (message.publicationId === this.publicationId
                         && typeof message.key === 'string' && Number.isInteger(message.offset)
@@ -182,7 +225,7 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
                     }
                     break;
             }
-        }));
+        });
         this.publish();
     }
 
@@ -191,15 +234,19 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
         this.running?.cancel();
         this.running = undefined;
         this.cancelAi();
+        this.cancelCrossRef();
+        this.cancelGitTrace();
+        this.cancelContractCheck();
+        this.crossRefFiles.clear();
         this.editor = editor;
         this.snapshot = undefined;
         this.renderedFile = undefined;
         this.mode = 'file';
         this.focusId = undefined;
         this.focusMessage = '';
-        if (!editor || !/\.(vue|js)$/i.test(editor.document.fileName)) {
+        if (!editor || !/\.(vue|js|ts)$/i.test(editor.document.fileName)) {
             this.status = 'unsupported';
-            this.message = '打开 .vue 或 .js 文件开始阅读';
+            this.message = '打开 .vue、.js 或 .ts 文件开始阅读';
             this.publish();
             return;
         }
@@ -208,7 +255,9 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
 
     private refresh(): void {
         this.refreshCount++;
+        this.mode = 'file';
         this.focusId = undefined;
+        this.focusMessage = '';
         this.analyzeEditor(true);
     }
 
@@ -251,8 +300,11 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
         this.running?.cancel();
         this.running = undefined;
         this.cancelAi();
+        this.cancelCrossRef();
+        this.cancelGitTrace();
+        this.cancelContractCheck();
         const document = this.editor?.document;
-        if (!document || !/\.(vue|js)$/i.test(document.fileName)) {
+        if (!document || !/\.(vue|js|ts)$/i.test(document.fileName)) {
             this.status = 'unsupported';
             this.message = '当前文件类型暂不支持';
             this.snapshot = undefined;
@@ -342,6 +394,252 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
     }
 
     /**
+     * 切换文件或重新分析时作废在途的跨文件检索，并让旧结果无法再写回面板。
+     * 检索本身在 git 子进程 / 文件读取里执行，中断后不再占用内存与 IO。
+     */
+    private cancelCrossRef(): void {
+        this.crossRefToken++;
+        this.crossRef?.abort();
+        this.crossRef = undefined;
+        // 主动取消也要回一条终态，否则面板上的按钮会一直停在「正在检索」。
+        for (const value of this.crossPending) { this.replyCrossRef(value, 'cancelled'); }
+        this.crossPending.clear();
+    }
+
+    /**
+     * 跨文件检索：全部按需触发，不建立常驻索引，结果有上限且可被下一次操作中断。
+     * 「谁引用了我」限定在当前文件；「跨文件调用点」只接受本次分析结果里已有的节点名，
+     * 避免面板变成任意符号的全库搜索入口。
+     */
+    private async runCrossRef(kind: 'importers' | 'symbol', value: string, id?: string): Promise<void> {
+        const document = this.editor?.document;
+        const snapshot = this.snapshot;
+        if (!document || !snapshot || document.uri.toString() !== snapshot.uri
+            || document.uri.scheme !== 'file') {
+            this.replyCrossRef(value, 'error', undefined, '当前文件正在分析或已修改，请刷新后重试。');
+            return;
+        }
+        const folder = vscode.workspace.getWorkspaceFolder(document.uri);
+        if (!folder) {
+            this.replyCrossRef(value, 'error', undefined, '请先打开一个工作区文件夹，跨文件检索只在工作区内进行。');
+            return;
+        }
+        let symbol = '';
+        if (kind === 'symbol') {
+            const node = snapshot.result.nodes.find(item => item.id === id);
+            if (!node || !node.name) {
+                this.replyCrossRef(value, 'error', undefined, '该节点已不在当前分析结果中，请刷新后重试。');
+                return;
+            }
+            symbol = node.name;
+        }
+        this.crossRef?.abort();
+        const controller = new AbortController();
+        this.crossRef = controller;
+        const token = this.crossRefToken;
+        this.crossPending.add(value);
+        try {
+            const root = folder.uri.fsPath;
+            const result = kind === 'importers'
+                ? await findImporters({ root, target: document.uri.fsPath, signal: controller.signal })
+                : await findSymbolSites({
+                    root, symbol, excludeFile: document.uri.fsPath, signal: controller.signal
+                });
+            if (token !== this.crossRefToken) { return; }
+            // 只累积，不覆盖：面板上可能同时留着多次检索的结果，这些文件都允许被点开。
+            for (const row of result.importers) { this.crossRefFiles.add(row.absolute); }
+            for (const row of result.hits) { this.crossRefFiles.add(row.absolute); }
+            this.replyCrossRef(value, 'ready', result);
+        } catch (error) {
+            if (token !== this.crossRefToken) { return; }
+            this.replyCrossRef(value, 'error', undefined,
+                error instanceof Error ? error.message : String(error));
+        } finally {
+            if (this.crossRef === controller) {
+                this.crossRef = undefined;
+                this.crossPending.delete(value);
+            }
+        }
+    }
+
+    private replyCrossRef(
+        value: string, state: 'ready' | 'error' | 'cancelled', result?: CrossRefResult, message?: string
+    ): void {
+        if (!this.view) { return; }
+        void this.view.webview.postMessage({ type: 'crossRef', value, state, result, message });
+    }
+
+    /** 打开跨文件检索结果里的某个位置；只允许打开本次结果中确实出现过的文件。 */
+    private async openLocation(file: string, line: number): Promise<void> {
+        if (!this.crossRefFiles.has(file)) { return; }
+        const uri = vscode.Uri.file(file);
+        const document = await vscode.workspace.openTextDocument(uri);
+        if (line < 1 || line > document.lineCount) { return; }
+        const editor = await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false });
+        const position = new vscode.Position(line - 1, 0);
+        editor.selection = new vscode.Selection(position, position);
+        editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    }
+
+    /** 切换文件或重新分析时作废在途的 blame；主动取消同样回一条终态，避免按钮卡在加载中。 */
+    private cancelGitTrace(): void {
+        this.gitTraceToken++;
+        this.gitTrace?.abort();
+        this.gitTrace = undefined;
+        for (const id of this.gitTracePending) { this.replyGitTrace(id, 'cancelled'); }
+        this.gitTracePending.clear();
+    }
+
+    /**
+     * 函数级 Git 溯源：只对这一个函数的行区间做 blame，不做全库 blame、不留缓存。
+     * 非 git 仓库 / 未装 git 都返回 unavailable 而非报错，面板直接不展示这一块。
+     */
+    private async runGitTrace(id: string): Promise<void> {
+        const document = this.editor?.document;
+        const snapshot = this.snapshot;
+        if (!document || !snapshot || document.uri.toString() !== snapshot.uri
+            || document.uri.scheme !== 'file') {
+            this.replyGitTrace(id, 'error', undefined, '当前文件正在分析或已修改，请刷新后重试。');
+            return;
+        }
+        const node = snapshot.result.nodes.find(item => item.id === id);
+        if (!node || node.range.endLine < node.range.startLine) {
+            this.replyGitTrace(id, 'error', undefined, '该节点已不在当前分析结果中，请刷新后重试。');
+            return;
+        }
+        this.gitTrace?.abort();
+        const controller = new AbortController();
+        this.gitTrace = controller;
+        const token = this.gitTraceToken;
+        this.gitTracePending.add(id);
+        try {
+            const outcome = await traceRange({
+                file: document.uri.fsPath,
+                startLine: node.range.startLine,
+                endLine: node.range.endLine,
+                signal: controller.signal
+            });
+            if (token !== this.gitTraceToken) { return; }
+            if (outcome.state === 'unavailable') {
+                this.replyGitTrace(id, 'unavailable', undefined, outcome.reason);
+            } else {
+                // 编辑器里有未保存改动时，blame 读到的是磁盘内容，行号可能与面板不一致。
+                const trace = { ...outcome.trace, unsaved: document.isDirty };
+                this.replyGitTrace(id, 'ready', trace);
+            }
+        } catch (error) {
+            if (token !== this.gitTraceToken) { return; }
+            this.replyGitTrace(id, 'error', undefined,
+                error instanceof Error ? error.message : String(error));
+        } finally {
+            if (this.gitTrace === controller) {
+                this.gitTrace = undefined;
+                this.gitTracePending.delete(id);
+            }
+        }
+    }
+
+    private replyGitTrace(
+        id: string, state: 'ready' | 'unavailable' | 'error' | 'cancelled',
+        trace?: GitTrace, message?: string
+    ): void {
+        if (!this.view) { return; }
+        void this.view.webview.postMessage({ type: 'gitTrace', id, state, trace, message });
+    }
+
+    /** 切换文件或重新分析时作废在途的契约校验；主动取消回一条终态，避免按钮停在加载中。 */
+    private cancelContractCheck(): void {
+        this.contractToken++;
+        this.contract?.abort();
+        this.contract = undefined;
+        if (this.contractPending) {
+            this.contractPending = false;
+            this.replyContractCheck('cancelled');
+        }
+    }
+
+    /**
+     * 组件契约校验：用本文件声明的 props / emits，核对「确定引用本文件」的父组件模板。
+     * 只回答模板里写了什么，不做运行时推断；父组件数量与结论条数都有上限。
+     */
+    private async runContractCheck(): Promise<void> {
+        const document = this.editor?.document;
+        const snapshot = this.snapshot;
+        if (!document || !snapshot || document.uri.toString() !== snapshot.uri
+            || document.uri.scheme !== 'file') {
+            this.replyContractCheck('error', undefined, '当前文件正在分析或已修改，请刷新后重试。');
+            return;
+        }
+        if (!/\.vue$/i.test(document.fileName)) {
+            this.replyContractCheck('unavailable', undefined, '契约校验只针对 .vue 组件，需要本文件的 props / emits 声明。');
+            return;
+        }
+        const contract = snapshot.result.contract;
+        if (!contract || (!contract.props.length && !contract.emits.length)) {
+            this.replyContractCheck('unavailable', undefined, '本文件没有声明 props 或 emits，没有可核对的契约。');
+            return;
+        }
+        const folder = vscode.workspace.getWorkspaceFolder(document.uri);
+        if (!folder) {
+            this.replyContractCheck('error', undefined, '请先打开一个工作区文件夹，契约校验只在工作区内进行。');
+            return;
+        }
+        this.contract?.abort();
+        const controller = new AbortController();
+        this.contract = controller;
+        const token = this.contractToken;
+        this.contractPending = true;
+        try {
+            const result = await verifyContract({
+                root: folder.uri.fsPath,
+                target: document.uri.fsPath,
+                props: contract.props.map(item => ({ name: item.name, required: item.required })),
+                // 只拿已声明的事件当契约：父组件监听了本文件触发但未声明的事件不算问题。
+                emits: contract.emits.filter(item => item.declared).map(item => item.name),
+                signal: controller.signal
+            });
+            if (token !== this.contractToken) { return; }
+            // 结论里的父组件文件允许被点开，与跨文件检索共用同一份白名单。
+            for (const report of result.reports) { this.crossRefFiles.add(report.absolute); }
+            this.replyContractCheck('ready', result);
+        } catch (error) {
+            if (token !== this.contractToken) { return; }
+            this.replyContractCheck('error', undefined,
+                error instanceof Error ? error.message : String(error));
+        } finally {
+            if (this.contract === controller) {
+                this.contract = undefined;
+                this.contractPending = false;
+            }
+        }
+    }
+
+    private replyContractCheck(
+        state: 'ready' | 'unavailable' | 'error' | 'cancelled',
+        result?: ContractCheckResult, message?: string
+    ): void {
+        if (!this.view) { return; }
+        void this.view.webview.postMessage({ type: 'contractCheck', state, result, message });
+    }
+
+    /**
+     * 面板内符号检索：直接扫内存里的完整分析结果（不是只发了首页的那部分），
+     * 不落盘、不调外部命令，命中按「完全同名 → 前缀 → 包含」排序后截断。
+     */
+    private searchNodes(text: string): void {
+        const snapshot = this.snapshot;
+        if (!this.view || !snapshot || this.status !== 'ready') { return; }
+        const found = matchNodes(snapshot.result.nodes, text, SEARCH_LIMIT);
+        void this.view.webview.postMessage({
+            type: 'filter',
+            text,
+            snapshotId: snapshot.fingerprint,
+            total: found.total,
+            matches: found.matches
+        });
+    }
+
+    /**
      * 面板内 AI 解读：未启用或网关未配置时**不发任何请求**，只回一条配置提示。
      * 结果按缓存键去重，文件改变后旧结果自然失效（缓存键含文件文本）。
      */
@@ -358,13 +656,13 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
         const target: AiScope = scope === 'file' ? { kind: 'file' } : { kind: 'node', id: scope };
         const settings = readAiSettings();
         if (!settings.enabled || settings.issue) {
-            this.replyInsight(snapshotId, scope, undefined, settings.issue || '未启用 AI 解读');
+            this.replyInsight(snapshotId, scope, 'error', undefined, settings.issue || '未启用 AI 解读');
             return;
         }
         const source = document.getText();
         const key = insightCacheKey(source, target, settings.gateway.model);
         const cached = force ? undefined : this.aiCache.get(key);
-        if (cached) { this.replyInsight(snapshotId, scope, cached); return; }
+        if (cached) { this.replyInsight(snapshotId, scope, 'ready', cached); return; }
         if (this.aiPending.has(key)) { return; }
         const controller = new AbortController();
         this.aiPending.set(key, controller);
@@ -378,26 +676,33 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
                 signal: controller.signal
             });
             if (!outcome.ok) {
-                // 主动取消（切文件/刷新）不再打扰用户，其余失败降级为一条提示。
-                if (outcome.failure !== 'aborted') { this.replyInsight(snapshotId, scope, undefined, outcome.message); }
+                if (outcome.failure === 'aborted') {
+                    // 主动取消（改配置）也要回一条 cancelled，否则前端 pending 状态会永久残留。
+                    this.replyInsight(snapshotId, scope, 'cancelled');
+                } else {
+                    this.replyInsight(snapshotId, scope, 'error', undefined, outcome.message);
+                }
                 return;
             }
             const insight = parseInsight(outcome.text, snapshot.result, settings.gateway.model, scopeKey(target));
             this.aiCache.set(key, insight);
-            this.replyInsight(snapshotId, scope, insight);
+            this.replyInsight(snapshotId, scope, 'ready', insight);
         } finally {
             this.aiPending.delete(key);
         }
     }
 
     /** 回传 AI 结果；文件快照已经变化时直接丢弃，避免把旧内容接到新文件上。 */
-    private replyInsight(snapshotId: string, scope: string, insight?: AiInsight, message?: string): void {
+    private replyInsight(
+        snapshotId: string, scope: string, state: 'ready' | 'error' | 'cancelled',
+        insight?: AiInsight, message?: string
+    ): void {
         if (!this.view || this.snapshot?.fingerprint !== snapshotId) { return; }
         void this.view.webview.postMessage({
             type: 'aiInsight',
             snapshotId,
             scope,
-            state: insight ? 'ready' : 'error',
+            state,
             text: insight?.text,
             evidence: insight?.evidence,
             dropped: insight?.dropped,

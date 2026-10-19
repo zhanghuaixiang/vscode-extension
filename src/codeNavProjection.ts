@@ -64,6 +64,41 @@ function shallowTemplate(node: TemplateNode): TemplateNode & { hasChildren: bool
     return { ...node, hasChildren: node.children.length > 0, children: [] };
 }
 
+/** 面板检索的一行命中。 */
+export interface NodeMatch {
+    id: string;
+    name: string;
+    kind: string;
+    line: number;
+}
+
+/**
+ * 面板内按名字检索：完全同名 → 前缀 → 包含，同级按行号升序，结果截断到 limit。
+ * 纯函数，只扫内存里已有的节点，不读磁盘、不建索引。
+ */
+export function matchNodes(
+    nodes: NavNode[], text: string, limit: number
+): { total: number; matches: NodeMatch[] } {
+    const needle = text.trim().toLowerCase();
+    if (needle.length < 2) { return { total: 0, matches: [] }; }
+    const scored: { match: NodeMatch; score: number }[] = [];
+    for (const node of nodes) {
+        if (!node.name) { continue; }
+        const lower = node.name.toLowerCase();
+        const score = lower === needle ? 0 : lower.startsWith(needle) ? 1 : lower.includes(needle) ? 2 : -1;
+        if (score < 0) { continue; }
+        scored.push({
+            match: { id: node.id, name: node.name, kind: node.kind, line: node.range.startLine },
+            score
+        });
+    }
+    scored.sort((left, right) => (left.score - right.score) || (left.match.line - right.match.line));
+    return {
+        total: scored.length,
+        matches: scored.slice(0, Math.max(0, limit)).map(item => item.match)
+    };
+}
+
 export function templatePage(
     result: CodeNavResult, parentId: string | null, offset: number
 ): { items: (TemplateNode & { hasChildren: boolean })[]; total: number } | undefined {
@@ -102,11 +137,18 @@ export function projectResult(result: CodeNavResult, focusId?: string): PanelRes
         ...(focusId ? [focusId] : [])
     ]);
     const paths: PanelResult['paths'] = [];
+    // 同一条关系可能被「聚焦入边」与「深度扩散」同时命中，按原始下标去重，避免重复行重复占用配额。
+    const included = new Set<number>();
+    const include = (index: number): boolean => {
+        if (included.has(index)) { return false; }
+        included.add(index);
+        paths.push({ ...result.paths[index], index });
+        return true;
+    };
     if (focusId) {
         for (const [index, edge] of result.paths.entries()) {
             if (edge.to !== focusId || paths.length >= 30) { continue; }
-            paths.push({ ...edge, index });
-            selected.add(edge.from);
+            if (include(index)) { selected.add(edge.from); }
         }
     }
     let frontier = new Set(selected);
@@ -114,7 +156,7 @@ export function projectResult(result: CodeNavResult, focusId?: string): PanelRes
         const next = new Set<string>();
         for (const [index, edge] of result.paths.entries()) {
             if (!frontier.has(edge.from) || paths.length >= 120) { continue; }
-            paths.push({ ...edge, index });
+            if (!include(index)) { continue; }
             if (edge.to) {
                 selected.add(edge.to);
                 next.add(edge.to);

@@ -3,8 +3,8 @@ import * as path from 'path';
 import { analyze } from './codeNavCore';
 
 const fileName = process.argv[2];
-if (!fileName || !/\.(vue|js)$/i.test(fileName) || process.argv.length !== 3) {
-    process.stderr.write('Usage: node dist/codeNavCli.js <file.vue|file.js>\n');
+if (!fileName || !/\.(vue|js|ts)$/i.test(fileName) || process.argv.length !== 3) {
+    process.stderr.write('Usage: node dist/codeNavCli.js <file.vue|file.js|file.ts>\n');
     process.exitCode = 1;
 } else {
     try {

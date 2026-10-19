@@ -111,6 +111,31 @@ suite('Code navigation core', () => {
             && path.targetName === 'request' && path.certainty === 'unresolved'));
     });
 
+    test('TypeScript files parse types and exports and report fileType ts', () => {
+        const source = [
+            "import type { Order } from './types';",
+            'interface Draft { id: string; total: number }',
+            'export type Amount = number;',
+            'export function total(orders: Order[]): number {',
+            '  const draft: Draft = { id: "a", total: 0 };',
+            '  return orders.length + draft.total;',
+            '}',
+            'export const label = (value: string): string => value.trim();'
+        ].join('\n');
+        const result = analyze(source, 'order.ts');
+        assert.deepStrictEqual(result.errors, []);
+        assert.strictEqual(result.fileType, 'ts');
+        assert.strictEqual(result.template, null);
+        assert.strictEqual(result.imports.length, 1);
+        // 类型别名不是运行时导出，只有函数与箭头函数算作导出。
+        assert.strictEqual(result.script.exports.length, 2);
+        const total = node(result, 'function', 'total');
+        assert.strictEqual(total.range.startLine, 4);
+        assert.ok(result.paths.some(path => path.type === 'exports' && path.to === total.id));
+        assert.ok(result.paths.some(path => path.type === 'exports'
+            && path.to === node(result, 'function', 'label').id));
+    });
+
     test('CommonJS exports and shadowed or dynamic calls do not invent edges', () => {
         const source = [
             'const helper = () => 1;',

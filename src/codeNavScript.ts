@@ -468,7 +468,7 @@ export class ScriptAnalyzer {
                         target = this.add('variable', this.result.script.name ?? 'default object', options, offset);
                         target.doc = this.docFor(statement, offset);
                         this.result.script.declarations.push(target.id);
-                        if (this.result.fileType === 'js') {
+                        if (this.result.fileType !== 'vue') {
                             target.children = this.objectMethods(options, offset);
                         }
                     }
@@ -1061,7 +1061,7 @@ export class ScriptAnalyzer {
         } else if (name === 'default' && t.isObjectExpression(right)) {
             target = this.add('variable', this.result.script.name ?? 'default object', right, offset);
             this.result.script.declarations.push(target.id);
-            if (this.result.fileType === 'js') {
+            if (this.result.fileType !== 'vue') {
                 target.children = this.objectMethods(right, offset);
             }
         }

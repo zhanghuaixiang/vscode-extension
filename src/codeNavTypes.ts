@@ -152,7 +152,7 @@ export interface CodeDiagnostic {
 export interface CodeNavResult {
     version: 1;
     file: string;
-    fileType: 'vue' | 'js';
+    fileType: 'vue' | 'js' | 'ts';
     meta: {
         totalLines: number;
         componentName: string | null;

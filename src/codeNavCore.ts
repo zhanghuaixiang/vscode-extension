@@ -133,7 +133,9 @@ function excerpt(text: string, limit = 80): string {
 }
 
 export function analyze(source: string, fileName: string): CodeNavResult {
-    const fileType = fileName.toLowerCase().endsWith('.vue') ? 'vue' : 'js';
+    const lower = fileName.toLowerCase();
+    const fileType: CodeNavResult['fileType'] =
+        lower.endsWith('.vue') ? 'vue' : lower.endsWith('.ts') ? 'ts' : 'js';
     const sourceMap = new SourceMap(source);
     const result: CodeNavResult = {
         version: 1,
@@ -157,8 +159,8 @@ export function analyze(source: string, fileName: string): CodeNavResult {
         errors: []
     };
     const scripts = new ScriptAnalyzer(result, sourceMap, source);
-    if (fileType === 'js') {
-        scripts.analyze([{ content: source, offset: 0, lang: 'js' }]);
+    if (fileType !== 'vue') {
+        scripts.analyze([{ content: source, offset: 0, lang: fileType }]);
     } else {
         try {
             const parsed = parseVue(source, { filename: fileName });

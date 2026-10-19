@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { analyze } from '../../codeNavCore';
-import { PAGE_SIZE, projectResult, sectionPage, templatePage } from '../../codeNavProjection';
+import { PAGE_SIZE, matchNodes, projectResult, sectionPage, templatePage } from '../../codeNavProjection';
 import { NavNode, TemplateNode } from '../../codeNavTypes';
 
 suite('Code navigation projection', () => {
@@ -111,5 +111,40 @@ suite('Code navigation projection', () => {
         for (const step of result.timeline) {
             if (step.id) { assert.ok(ids.has(step.id), `missing timeline ${step.name}`); }
         }
+    });
+
+    test('deduplicates relation edges reachable from both focus and diffusion', () => {
+        const result = analyze('export function first() {}', 'dup.js');
+        const entry = result.nodes.find(item => item.id === result.guide.entries[0])!;
+        const fn = result.nodes.find(item => item.kind === 'function')!;
+        result.paths = [
+            { from: entry.id, to: fn.id, type: 'exports', certainty: 'certain', evidence: fn.range },
+            { from: fn.id, to: entry.id, type: 'calls', certainty: 'certain', evidence: entry.range }
+        ];
+        const projected = projectResult(result, fn.id);
+        assert.deepStrictEqual(projected.paths.map(edge => edge.index), [0, 1]);
+    });
+
+    test('ranks panel search hits by exact, prefix then substring, and caps the result', () => {
+        const result = analyze('export function save() {}', 'search.js');
+        const example = result.nodes[0];
+        const at = (line: number) => ({ startLine: line, startColumn: 0, endLine: line, endColumn: 1 });
+        const nodes: NavNode[] = [
+            { ...example, id: 'n1', name: 'loadUser', range: at(30) },
+            { ...example, id: 'n2', name: 'user', range: at(8) },
+            { ...example, id: 'n3', name: 'user', range: at(2) },
+            { ...example, id: 'n4', name: 'fetchUserList', range: at(5) },
+            { ...example, id: 'n5', name: '', range: at(1) }
+        ];
+        // 同名优先于包含，同档按行号升序；空名字的节点不参与。
+        const found = matchNodes(nodes, 'User', 2);
+        assert.strictEqual(found.total, 4);
+        assert.deepStrictEqual(found.matches.map(item => item.id), ['n3', 'n2']);
+        assert.deepStrictEqual(matchNodes(nodes, 'User', 10).matches.map(item => item.id),
+            ['n3', 'n2', 'n4', 'n1']);
+        // 前后空格会被裁掉，匹配本身大小写不敏感。
+        assert.strictEqual(matchNodes(nodes, ' loaduser ', 10).matches[0].id, 'n1');
+        assert.deepStrictEqual(matchNodes(nodes, 'u', 10), { total: 0, matches: [] });
+        assert.deepStrictEqual(matchNodes(nodes, 'missing', 10), { total: 0, matches: [] });
     });
 });

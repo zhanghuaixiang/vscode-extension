@@ -65,7 +65,7 @@
 				{
 					"command": "rapidTools.codeNav.refresh",
 					"group": "navigation@1",
-					"when": "resourceExtname == .vue || resourceExtname == .js"
+					"when": "resourceExtname == .vue || resourceExtname == .js || resourceExtname == .ts"
 				}
 			]
 		},
@@ -167,6 +167,15 @@
 					"type": "string",
 					"default": "**/src/**",
 					"description": "启用国际化悬停提示的文件 glob 模式，留空则不启用悬停提示"
+				},
+				"rapidMenus": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [],
+					"uniqueItems": true,
+					"markdownDescription": "启动快捷菜单：按顺序执行的 npm script 名称（对应工作区 `package.json` 的 `scripts` 键，每项一条，自动依次开终端执行 `npm run <名称>`）。留空则不显示「启动」菜单。"
 				}
 			}
 		}
