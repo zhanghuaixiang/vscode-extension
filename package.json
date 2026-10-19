@@ -104,7 +104,7 @@
 				},
 				"AI.model": {
 					"type": "string",
-					"default": "yunzhongzi",
+					"default": "",
 					"description": "大模型名称，简繁英转换与代码理解 AI 解读共用"
 				},
 				"AI.apiKey": {

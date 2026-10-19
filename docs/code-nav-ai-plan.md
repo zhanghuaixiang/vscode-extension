@@ -17,7 +17,7 @@
 | 配置 | 默认 | 说明 |
 | --- | --- | --- |
 | `AI.baseUrl` | `""` | 接口地址，OpenAI 兼容 |
-| `AI.model` | `"yunzhongzi"` | 模型名，两个功能共用 |
+| `AI.model` | `""` | 模型名，两个功能共用 |
 | `AI.apiKey` | `""` | 按 `Authorization: Bearer` 发送；内网网关可留空 |
 | `AI.enable` | `false` | 代码理解面板 AI 解读开关；关闭时不发起任何请求 |
 
@@ -90,4 +90,4 @@ AI 默认关闭（`AI.enable: false`），因此**升级后行为与 A 阶段之
 
 ## 迁移
 
-`Converter.enUrl` / `Converter.AIModel` 已删除，原先的接口地址与模型名需要改写到 `AI.baseUrl` / `AI.model`（`AI.model` 默认仍是 `yunzhongzi`，与旧默认一致）。旧键会以「未知配置」提示出现在 settings.json 里，可自行清理；`Converter.enLabel`（简转EN 提示词）保留在 `Converter` 分组，因为它属于该功能自身而非连接配置。
+`Converter.enUrl` / `Converter.AIModel` 已删除，原先的接口地址与模型名需要改写到 `AI.baseUrl` / `AI.model`（`AI.model` 默认仍是 ``，与旧默认一致）。旧键会以「未知配置」提示出现在 settings.json 里，可自行清理；`Converter.enLabel`（简转EN 提示词）保留在 `Converter` 分组，因为它属于该功能自身而非连接配置。
