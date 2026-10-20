@@ -97,25 +97,25 @@
 			"type": "object",
 			"title": "rapid-tools",
 			"properties": {
-				"AI.baseUrl": {
-					"type": "string",
-					"default": "",
-					"description": "大模型接口地址（OpenAI 兼容，如 https://host/v1/chat/completions）"
+				"AI.enable": {
+					"type": "boolean",
+					"default": false,
+					"description": "代码理解面板的 AI 解读开关（默认关闭；关闭时不发起任何请求）"
 				},
 				"AI.model": {
 					"type": "string",
 					"default": "",
 					"description": "大模型名称，简繁英转换与代码理解 AI 解读共用"
 				},
+				"AI.baseUrl": {
+					"type": "string",
+					"default": "",
+					"description": "大模型接口地址（OpenAI 兼容，如 https://host/v1/chat/completions）"
+				},
 				"AI.apiKey": {
 					"type": "string",
 					"default": "",
 					"description": "大模型接口密钥，按 Authorization: Bearer 发送；内网网关无需鉴权时留空"
-				},
-				"AI.enable": {
-					"type": "boolean",
-					"default": false,
-					"description": "代码理解面板的 AI 解读开关（默认关闭；关闭时不发起任何请求）"
 				},
 				"Converter.ctEnable": {
 					"type": "boolean",
