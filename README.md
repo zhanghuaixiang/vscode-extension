@@ -8,7 +8,7 @@
 
 1. 安装插件后重载窗口。
 2. 打开任意 `.vue`、`.js` 或 `.ts` 文件，点击左侧活动栏的「代码理解」图标，打开侧边栏视图「单文件导读」——**无需任何配置**，离线分析即可用。
-3. 想用 AI 解读或「简体转 EN」时，在设置里搜 `AI`，填好 `AI.baseUrl` 与 `AI.model`，并把 `AI.enable` 打开（见 [大模型配置](#六配置项速查)）。
+3. 想用 AI 解读或「简体转 EN」时，在设置里搜 `AI`，把 `AI.enable` 打开即可——`AI.baseUrl` / `AI.model` / `AI.apiKey` 都已内置默认值；需要指向别的网关时，直接在设置里覆盖（见 [大模型配置](#六配置项速查)）。
 
 ## 功能与入口一览
 
@@ -59,7 +59,7 @@
 
 ### 1.4 用 AI 解读（可选）
 
-1. 按 [大模型配置](#六配置项速查) 填好 `AI.baseUrl`、`AI.model`，并把 `AI.enable` 打开。
+1. 把 `AI.enable` 打开（`AI.baseUrl` / `AI.model` / `AI.apiKey` 已内置默认值，需要换网关时再覆盖）。
 2. **整文件解读**：在「阅读路径」顶部点「生成解读」，稍后区块内就地显示结果。
 3. **单节点解读**：函数卡片或状态流转行右上角点「AI」，只解释这一个节点，点一次请求一次。
 4. 解读结果里带行号的引用可以直接点击跳回源码；不满意可点「重新生成」。
@@ -97,7 +97,7 @@
 
 1. 选中一段中文。
 2. 右键 →「简体转 EN」，翻译结果会**就地替换选区**。
-3. 需要先配好大模型（`AI.baseUrl` + `AI.model`）；提示词由 `Converter.enLabel` 提供。
+3. 需要先配好大模型（`AI.baseUrl` + `AI.model`，两者都已有默认值）；提示词由 `Converter.enLabel` 提供。
 
 菜单只在有选区时出现；未配置网关或提示词时会直接提示原因，不会发出请求。
 
@@ -146,12 +146,12 @@
 
 | 配置 | 默认 | 说明 |
 | --- | --- | --- |
-| `AI.baseUrl` | `""` | 接口地址，OpenAI 兼容（如 `https://host/v1/chat/completions`） |
-| `AI.model` | `""` | 模型名 |
-| `AI.apiKey` | `""` | 按 `Authorization: Bearer` 发送；内网网关无需鉴权时留空 |
+| `AI.baseUrl` | `http://100.7.134.32:7777/v1` | 接口地址，OpenAI 兼容；只配到 `/v1` 这类版本前缀时会自动补 `/chat/completions` |
+| `AI.model` | `inclouder` | 模型名 |
+| `AI.apiKey` | `Inspur1!` | 按 `Authorization: Bearer` 发送；内网网关无需鉴权时留空 |
 | `AI.enable` | `false` | 代码理解面板的 AI 解读开关；关闭时不发起任何请求 |
 
-`AI.baseUrl` 与 `AI.model` 必须配置，`apiKey` 可留空；`AI.*` 任一项变化时面板即时刷新，无需重载窗口。
+三个连接项都已内置默认值，设置界面里显示的就是它们；**改过的项以你的设置为准**，未改动的项继续用默认值。使用 AI 功能只需把 `AI.enable` 打开。`AI.*` 任一项变化时面板即时刷新，无需重载窗口。
 
 > **迁移**：早期版本的 `Converter.enUrl`、`Converter.AIModel`、`CodeNav.aiModel`、`CodeNav.aiEnable` 已移除，请改用上表的 `AI.baseUrl` / `AI.model` / `AI.enable`；`Converter.enLabel` 保留不变。
 

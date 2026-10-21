@@ -37,13 +37,26 @@ export interface GatewayOptions {
     apiKey?: string;
 }
 
+/** OpenAI 兼容网关的具体对话端点。 */
+const CHAT_PATH = '/chat/completions';
+
+/**
+ * 归一化接口地址：只配到 `/v1` 这类版本前缀时按 OpenAI 惯例补上 `/chat/completions`，
+ * 已写完整端点（或以 `/chat` 结尾的自定义路由）则原样保留。
+ */
+function resolveEndpoint(url: string | undefined): string {
+    const trimmed = (url ?? '').trim().replace(/\/+$/, '');
+    if (!trimmed || !/\/v\d+$/i.test(trimmed)) { return trimmed; }
+    return `${trimmed}${CHAT_PATH}`;
+}
+
 /**
  * 归一化网关配置：统一去空格，避免 settings.json 里的尾随空格导致鉴权或路由失败。
  * 纯函数，便于单测。
  */
 export function resolveGateway(options: GatewayOptions): AiGatewayConfig {
     return {
-        url: (options.url ?? '').trim(),
+        url: resolveEndpoint(options.url),
         model: (options.model ?? '').trim(),
         apiKey: (options.apiKey ?? '').trim()
     };

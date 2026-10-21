@@ -121,6 +121,20 @@ suite('aiClient', () => {
             { url: 'http://x', model: 'm', apiKey: 'k' }
         );
         assert.deepStrictEqual(resolveGateway({}), { url: '', model: '', apiKey: '' });
+        // 只配到版本前缀时补全对话端点，已经写完整端点或自定义路由时保持原样。
+        assert.strictEqual(
+            resolveGateway({ url: 'http://100.7.134.32:7777/v1' }).url,
+            'http://100.7.134.32:7777/v1/chat/completions'
+        );
+        assert.strictEqual(
+            resolveGateway({ url: ' http://x/v2/ ' }).url,
+            'http://x/v2/chat/completions'
+        );
+        assert.strictEqual(
+            resolveGateway({ url: 'http://x/v1/chat/completions' }).url,
+            'http://x/v1/chat/completions'
+        );
+        assert.strictEqual(resolveGateway({ url: 'http://x/api/chat' }).url, 'http://x/api/chat');
         // apiKey 允许留空：内网网关通常不带鉴权。
         assert.strictEqual(gatewayIssue({ url: 'http://x', model: 'm', apiKey: '' }), '');
         assert.ok(gatewayIssue({ url: '', model: 'm', apiKey: '' }).includes('AI.baseUrl'));

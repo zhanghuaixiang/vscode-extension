@@ -1,9 +1,9 @@
 {
 	"name": "rapid-tools",
 	"publisher": "zhanghuaixiang",
-	"displayName": "rapid-tools",
+	"displayName": "Rapid Tools",
 	"description": "ics-vscode 插件",
-	"version": "0.0.5",
+	"version": "0.0.6",
 	"icon": "images/icon.png",
 	"repository": "https://github.com/zhanghuaixiang/vscode-extension.git",
 	"engines": {
@@ -95,7 +95,7 @@
 		],
 		"configuration": {
 			"type": "object",
-			"title": "rapid-tools",
+			"title": "Rapid Tools",
 			"properties": {
 				"AI.enable": {
 					"type": "boolean",
@@ -104,17 +104,17 @@
 				},
 				"AI.model": {
 					"type": "string",
-					"default": "",
+					"default": "inclouder",
 					"description": "大模型名称，简繁英转换与代码理解 AI 解读共用"
 				},
 				"AI.baseUrl": {
 					"type": "string",
-					"default": "",
-					"description": "大模型接口地址（OpenAI 兼容，如 https://host/v1/chat/completions）"
+					"default": "http://100.7.134.32:7777/v1",
+					"description": "大模型接口地址（OpenAI 兼容）。只配到 /v1 这类版本前缀时会自动补 /chat/completions，也可直接写完整端点"
 				},
 				"AI.apiKey": {
 					"type": "string",
-					"default": "",
+					"default": "Inspur1!",
 					"description": "大模型接口密钥，按 Authorization: Bearer 发送；内网网关无需鉴权时留空"
 				},
 				"Converter.ctEnable": {
