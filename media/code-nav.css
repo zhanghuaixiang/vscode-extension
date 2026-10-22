@@ -7,6 +7,11 @@
     --accent: var(--vscode-textLink-foreground, #56b9a5);
     --card: var(--vscode-editorWidget-background, rgba(115, 145, 135, .08));
     --focus: var(--vscode-focusBorder, #48b9a9);
+    /* 文本字号阶梯：跟随 VS Code 的界面字号（默认 13px）并整体上调一档，
+       原来的 10~12px 在侧栏里偏小；要统一调整字号只改这三个变量即可 */
+    --fs-md: calc(var(--vscode-font-size, 13px) + 1px);
+    --fs-sm: var(--vscode-font-size, 13px);
+    --fs-xs: calc(var(--vscode-font-size, 13px) - 1px);
 }
 * { box-sizing: border-box; }
 body {
@@ -14,8 +19,8 @@ body {
     background: var(--surface);
     color: var(--ink);
     font-family: var(--vscode-font-family, "Segoe UI", sans-serif);
-    font-size: 12px;
-    line-height: 1.55;
+    font-size: var(--fs-md);
+    line-height: 1.6;
 }
 button { cursor: pointer; font: inherit; }
 button:focus-visible, summary:focus-visible {
@@ -36,7 +41,7 @@ button:focus-visible, summary:focus-visible {
     letter-spacing: -5px;
     padding-right: 4px;
 }
-.brand-name { font-weight: 700; letter-spacing: .08em; font-size: 11px; }
+.brand-name { font-weight: 700; letter-spacing: .08em; font-size: var(--fs-sm); }
 .refresh-button {
     margin-left: auto;
     padding: 3px 9px;
@@ -54,7 +59,7 @@ button:focus-visible, summary:focus-visible {
     line-height: 1.25;
     overflow-wrap: anywhere;
 }
-.file-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 9px; color: var(--muted); font-size: 11px; }
+.file-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 9px; color: var(--muted); font-size: var(--fs-sm); }
 .tabs {
     display: flex;
     border-bottom: 1px solid var(--line);
@@ -67,7 +72,7 @@ button:focus-visible, summary:focus-visible {
     border-bottom: 2px solid transparent;
     background: transparent;
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     letter-spacing: .02em;
 }
 .tab.selected { border-bottom-color: var(--accent); color: var(--ink); font-weight: 700; }
@@ -79,7 +84,7 @@ button:focus-visible, summary:focus-visible {
     border-radius: 3px;
     background: transparent;
     color: var(--muted);
-    font-size: 10px;
+    font-size: var(--fs-xs);
 }
 .mode-button.active { border-color: var(--accent); color: var(--ink); background: var(--card); }
 .focus-incoming {
@@ -91,18 +96,18 @@ button:focus-visible, summary:focus-visible {
 .eyebrow {
     color: var(--accent);
     font-family: var(--vscode-editor-font-family, Consolas, monospace);
-    font-size: 10px;
+    font-size: var(--fs-xs);
     font-weight: 700;
     letter-spacing: .12em;
 }
 .section-title { margin: 8px 0 8px; font-size: 17px; line-height: 1.28; letter-spacing: -.025em; }
 .intro { margin: 0; color: var(--ink); line-height: 1.7; }
-.hint { margin: 9px 0 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.hint { margin: 9px 0 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.65; }
 .block-heading {
     margin: 26px 0 10px;
     padding-top: 12px;
     border-top: 1px solid var(--line);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     letter-spacing: .04em;
 }
 .route {
@@ -113,7 +118,7 @@ button:focus-visible, summary:focus-visible {
     border-radius: 3px;
     background: var(--card);
 }
-.route-kicker { color: var(--muted); font-size: 10px; letter-spacing: .06em; margin-bottom: 4px; }
+.route-kicker { color: var(--muted); font-size: var(--fs-xs); letter-spacing: .06em; margin-bottom: 4px; }
 .node-row { display: flex; gap: 7px; align-items: baseline; min-width: 0; }
 .nav-link {
     color: var(--ink);
@@ -128,7 +133,7 @@ button:focus-visible, summary:focus-visible {
 .line-mark {
     margin-left: auto;
     color: var(--muted);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
     white-space: nowrap;
 }
 .edge {
@@ -142,7 +147,7 @@ button:focus-visible, summary:focus-visible {
     border-left: 1px solid var(--accent);
 }
 .edge.unresolved { border-left-style: dashed; border-left-color: var(--muted); }
-.edge-type { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.edge-type { color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
 .edge .nav-link { flex: 1; min-width: 0; }
 .unknown { flex: 1; color: var(--muted); overflow-wrap: anywhere; }
 .evidence {
@@ -150,7 +155,7 @@ button:focus-visible, summary:focus-visible {
     border: 0;
     color: var(--accent);
     padding: 1px 0;
-    font-size: 10px;
+    font-size: var(--fs-xs);
     white-space: nowrap;
 }
 .evidence:hover { text-decoration: underline; }
@@ -161,7 +166,7 @@ button:focus-visible, summary:focus-visible {
 .doc-text {
     margin: 0;
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     line-height: 1.6;
     overflow-wrap: anywhere;
 }
@@ -171,7 +176,7 @@ button:focus-visible, summary:focus-visible {
     border: 1px solid var(--line);
     border-radius: 2px;
     color: var(--muted);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
 }
 .doc-tag.tag-deprecated {
     border-color: var(--vscode-editorWarning-foreground, #c49b55);
@@ -190,7 +195,7 @@ button:focus-visible, summary:focus-visible {
     border: 0;
     background: transparent;
     color: var(--accent);
-    font-size: 10px;
+    font-size: var(--fs-xs);
 }
 .quote-source:hover { text-decoration: underline; }
 .note-list { display: grid; gap: 5px; }
@@ -202,14 +207,14 @@ button:focus-visible, summary:focus-visible {
     border-radius: 2px;
     background: var(--card);
     color: var(--muted);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
 }
 .note-kind.kind-todo { border-color: var(--accent); color: var(--accent); }
 .note-kind.kind-fixme {
     border-color: var(--vscode-editorWarning-foreground, #c49b55);
     color: var(--vscode-editorWarning-foreground, #c49b55);
 }
-.note-text { flex: 1; min-width: 0; font-size: 11px; }
+.note-text { flex: 1; min-width: 0; font-size: var(--fs-sm); }
 .contract-section { margin-top: 4px; }
 .contract-section .block-heading { margin-top: 22px; }
 .contract-list { display: grid; gap: 8px; }
@@ -223,30 +228,30 @@ button:focus-visible, summary:focus-visible {
     border: 0;
     background: transparent;
     color: var(--ink);
-    font: 11px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-sm) var(--vscode-editor-font-family, Consolas, monospace);
     text-align: left;
     overflow-wrap: anywhere;
 }
 .contract-name:hover { color: var(--accent); }
 .contract-type {
     color: var(--accent);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
     overflow-wrap: anywhere;
 }
 .contract-kind {
     color: var(--muted);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
 }
 .contract-flag {
     padding: 0 4px;
     border: 1px solid var(--line);
     border-radius: 2px;
     color: var(--muted);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
     white-space: nowrap;
 }
 .contract-flag.required { border-color: var(--accent); color: var(--accent); }
-.contract-note { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.contract-note { margin-top: 3px; color: var(--muted); font-size: var(--fs-xs); }
 .contract-trigger {
     display: flex;
     align-items: baseline;
@@ -261,7 +266,7 @@ button:focus-visible, summary:focus-visible {
     border: 0;
     background: transparent;
     color: var(--accent);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
 }
 .line-link:hover { text-decoration: underline; }
 .flow-list { display: grid; gap: 7px; }
@@ -275,21 +280,21 @@ button:focus-visible, summary:focus-visible {
     border: 0;
     background: transparent;
     color: var(--ink);
-    font: 11px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-sm) var(--vscode-editor-font-family, Consolas, monospace);
 }
 .flow-name:hover { color: var(--accent); }
 .flow-part { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin-top: 4px; }
-.flow-label { flex: none; min-width: 28px; color: var(--muted); font-size: 10px; }
+.flow-label { flex: none; min-width: 28px; color: var(--muted); font-size: var(--fs-xs); }
 .flow-ref {
     padding: 0 4px;
     border: 1px solid var(--line);
     border-radius: 2px;
     background: transparent;
     color: var(--ink);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
 }
 .flow-ref:hover { border-color: var(--accent); color: var(--accent); }
-.flow-line { color: var(--muted); font: 9px var(--vscode-editor-font-family, Consolas, monospace); }
+.flow-line { color: var(--muted); font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace); }
 .timeline-list { display: grid; gap: 5px; }
 .timeline-row {
     display: flex;
@@ -303,14 +308,14 @@ button:focus-visible, summary:focus-visible {
     flex: none;
     min-width: 46px;
     color: var(--accent);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
 }
 .timeline-name {
     padding: 0;
     border: 0;
     background: transparent;
     color: var(--ink);
-    font: 11px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-sm) var(--vscode-editor-font-family, Consolas, monospace);
     text-align: left;
     overflow-wrap: anywhere;
 }
@@ -326,7 +331,7 @@ button.timeline-name:hover { color: var(--accent); }
     border: 0;
     background: transparent;
     color: var(--ink);
-    font: 11px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-sm) var(--vscode-editor-font-family, Consolas, monospace);
     text-align: left;
     overflow-wrap: anywhere;
 }
@@ -342,7 +347,7 @@ button.timeline-name:hover { color: var(--accent); }
     font-weight: 650;
     list-style-position: inside;
 }
-.section-count { margin-left: auto; color: var(--muted); font-size: 10px; font-weight: 400; }
+.section-count { margin-left: auto; color: var(--muted); font-size: var(--fs-xs); font-weight: 400; }
 .section-body { padding: 0 0 10px 13px; }
 .section-body .node-row { margin: 3px 0; }
 .tree-root { padding: 0 0 12px 12px; }
@@ -358,7 +363,7 @@ button.timeline-name:hover { color: var(--accent); }
     color: var(--muted);
     border: 1px solid var(--line);
     border-radius: 3px;
-    font-size: 10px;
+    font-size: var(--fs-xs);
 }
 .pager {
     display: flex;
@@ -374,14 +379,14 @@ button.timeline-name:hover { color: var(--accent); }
     background: transparent;
     color: var(--ink);
     padding: 2px 6px;
-    font-size: 10px;
+    font-size: var(--fs-xs);
 }
 .pager-button:disabled { cursor: default; opacity: .4; }
 .pager-button:not(:disabled):hover { color: var(--accent); border-color: var(--accent); }
 .page-label {
     margin-left: auto;
     color: var(--muted);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
     white-space: nowrap;
 }
 .diagnostic {
@@ -415,12 +420,12 @@ button.timeline-name:hover { color: var(--accent); }
     border: 1px solid var(--accent);
     border-radius: 2px;
     color: var(--accent);
-    font-size: 10px;
+    font-size: var(--fs-xs);
     letter-spacing: .04em;
     white-space: nowrap;
 }
-.ai-title { color: var(--ink); font-size: 11px; }
-.ai-status { color: var(--muted); font-size: 10px; }
+.ai-title { color: var(--ink); font-size: var(--fs-sm); }
+.ai-status { color: var(--muted); font-size: var(--fs-xs); }
 .ai-action {
     margin-left: auto;
     padding: 1px 6px;
@@ -428,14 +433,14 @@ button.timeline-name:hover { color: var(--accent); }
     border-radius: 2px;
     background: transparent;
     color: var(--ink);
-    font-size: 10px;
+    font-size: var(--fs-xs);
 }
 .ai-action:hover { color: var(--accent); border-color: var(--accent); }
 /* AI 正文按 markdown 排版：块级元素自己撑开间距，因此不再依赖 pre-wrap 保留换行。 */
 .ai-text {
     margin: 7px 0 0;
     color: var(--ink);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     line-height: 1.7;
     overflow-wrap: anywhere;
 }
@@ -443,7 +448,7 @@ button.timeline-name:hover { color: var(--accent); }
 .ai-text > * + * { margin-top: 5px; }
 .ai-p { color: var(--ink); }
 /* 标题只用于分层：面板里统一收敛为小号粗体，避免和面板自身的层级抢视线。 */
-.ai-h { color: var(--ink); font-size: 11px; font-weight: 700; letter-spacing: .01em; }
+.ai-h { color: var(--ink); font-size: var(--fs-sm); font-weight: 700; letter-spacing: .01em; }
 .ai-list { padding-left: 16px; }
 .ai-list li + li { margin-top: 2px; }
 .ai-quote { padding-left: 8px; border-left: 2px solid var(--line); color: var(--muted); }
@@ -452,7 +457,7 @@ button.timeline-name:hover { color: var(--accent); }
     border-radius: 2px;
     background: var(--vscode-textCodeBlock-background, rgba(255, 255, 255, .08));
     color: var(--vscode-textPreformat-foreground, var(--accent));
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
 }
 .ai-pre {
     padding: 6px 8px;
@@ -460,7 +465,7 @@ button.timeline-name:hover { color: var(--accent); }
     border: 1px solid var(--line);
     border-radius: 3px;
     background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, .22));
-    font: 10px/1.5 var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs)/1.5 var(--vscode-editor-font-family, Consolas, monospace);
     white-space: pre;
 }
 .ai-pre code { color: var(--ink); font: inherit; }
@@ -469,7 +474,7 @@ button.timeline-name:hover { color: var(--accent); }
 .c-string { color: var(--vscode-debugTokenExpression-string, #ce9178); }
 .c-number { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
 .c-keyword { color: var(--vscode-debugTokenExpression-boolean, #569cd6); }
-.ai-note { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.ai-note { margin: 6px 0 0; color: var(--muted); font-size: var(--fs-xs); line-height: 1.6; }
 .ai-refs { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; margin-top: 6px; }
 .ai-ref {
     padding: 0 4px;
@@ -477,7 +482,7 @@ button.timeline-name:hover { color: var(--accent); }
     border-radius: 2px;
     background: transparent;
     color: var(--accent);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
 }
 .ai-ref:hover { border-color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .ai-button {
@@ -486,7 +491,7 @@ button.timeline-name:hover { color: var(--accent); }
     border-radius: 2px;
     background: transparent;
     color: var(--muted);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
 }
 .ai-button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 .ai-button.done { color: var(--accent); border-color: var(--accent); }
@@ -509,13 +514,13 @@ button.timeline-name:hover { color: var(--accent); }
     border: 1px solid var(--line);
     border-radius: 2px;
     color: var(--muted);
-    font-size: 10px;
+    font-size: var(--fs-xs);
     letter-spacing: .04em;
     white-space: nowrap;
 }
-.cross-title { color: var(--ink); font-size: 11px; }
+.cross-title { color: var(--ink); font-size: var(--fs-sm); }
 .cross-group { margin-top: 8px; }
-.cross-group-head { color: var(--muted); font-size: 10px; letter-spacing: .03em; }
+.cross-group-head { color: var(--muted); font-size: var(--fs-xs); letter-spacing: .03em; }
 .cross-list { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
 .cross-row { padding: 4px 0; border-top: 1px solid var(--line); }
 .cross-row:first-child { border-top: none; }
@@ -524,7 +529,7 @@ button.timeline-name:hover { color: var(--accent); }
     border: none;
     background: transparent;
     color: var(--ink);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
     text-align: left;
     overflow-wrap: anywhere;
 }
@@ -532,13 +537,10 @@ button.timeline-name:hover { color: var(--accent); }
 .cross-detail {
     margin-top: 2px;
     color: var(--muted);
-    font: 10px var(--vscode-editor-font-family, Consolas, monospace);
+    font: var(--fs-xs) var(--vscode-editor-font-family, Consolas, monospace);
     overflow-wrap: anywhere;
 }
-.cross-meta { margin: 8px 0 0; color: var(--muted); font-size: 10px; letter-spacing: .02em; }
-.git-latest { margin: 2px 0 0; }
-.git-latest .cross-detail { font-family: inherit; font-size: 11px; }
-.git-author { color: var(--ink); font-weight: 600; }
+.cross-meta { margin: 8px 0 0; color: var(--muted); font-size: var(--fs-xs); letter-spacing: .02em; }
 .filter-bar { padding: 9px 12px 0; }
 .filter-input {
     width: 100%;
@@ -548,7 +550,7 @@ button.timeline-name:hover { color: var(--accent); }
     background: var(--vscode-input-background, transparent);
     color: var(--vscode-input-foreground, var(--ink));
     font-family: var(--vscode-editor-font-family, Consolas, monospace);
-    font-size: 11px;
+    font-size: var(--fs-sm);
 }
 .filter-input:focus { outline: 1px solid var(--focus); outline-offset: -1px; }
 .filter-input::placeholder { color: var(--muted); }

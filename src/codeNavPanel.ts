@@ -4,9 +4,8 @@ import { AiInsightCache, chat } from './aiClient';
 import { AI_SETTINGS_QUERY, AI_SETTING_KEYS, readAiSettings } from './aiConfig';
 import { AI_SYSTEM_PROMPT, AiInsight, AiScope, buildContext, insightCacheKey, isKnownLine, parseInsight, scopeKey } from './codeNavAi';
 import { analyze } from './codeNavCore';
-import { CrossRefResult, findImporters, findSymbolSites } from './codeNavCrossRef';
+import { CrossRefResult, findImporters } from './codeNavCrossRef';
 import { ContractCheckResult, verifyContract } from './codeNavContract';
-import { GitTrace, traceRange } from './codeNavGit';
 import { PAGE_SIZE, matchNodes, projectResult, sectionIds, sectionPage, templatePage } from './codeNavProjection';
 import { AnalysisCancelled, AnalysisTask, runAnalysis } from './codeNavRunner';
 import { CodeNavResult, SourceRange } from './codeNavTypes';
@@ -53,10 +52,6 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
     private crossRefToken = 0;
     /** 最近一次跨文件结果里出现过的文件，只有这些文件允许被面板打开。 */
     private crossRefFiles = new Set<string>();
-    private gitTrace?: AbortController;
-    private readonly gitTracePending = new Set<string>();
-    /** 与 crossRefToken 同理：文件一变，在途的 blame 结果作废。 */
-    private gitTraceToken = 0;
     private contract?: AbortController;
     private contractPending = false;
     private contractToken = 0;
@@ -65,7 +60,7 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
         context.subscriptions.push(vscode.window.registerWebviewViewProvider(CodeNavPanel.viewId, this));
         context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor => this.setEditor(editor)));
         context.subscriptions.push({ dispose: () => this.running?.cancel() });
-        context.subscriptions.push({ dispose: () => { this.cancelAi(); this.crossRef?.abort(); this.gitTrace?.abort(); this.contract?.abort(); this.messageListener?.dispose(); } });
+        context.subscriptions.push({ dispose: () => { this.cancelAi(); this.crossRef?.abort(); this.contract?.abort(); this.messageListener?.dispose(); } });
         // AI 配置变化后立即刷新面板：用户在设置页改完不必重启窗口。
         context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
             if (!AI_SETTING_KEYS.some(key => event.affectsConfiguration(key))) { return; }
@@ -176,19 +171,14 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
                     void vscode.commands.executeCommand('workbench.action.openSettings', AI_SETTINGS_QUERY);
                     break;
                 case 'crossRef':
-                    if (typeof message.value === 'string'
-                        && (message.kind === 'importers' || message.kind === 'symbol')) {
-                        void this.runCrossRef(message.kind, message.value,
-                            typeof message.id === 'string' ? message.id : undefined);
+                    if (typeof message.value === 'string') {
+                        void this.runImporters(message.value);
                     }
                     break;
                 case 'openLocation':
                     if (typeof message.file === 'string' && Number.isInteger(message.line)) {
                         void this.openLocation(message.file, message.line);
                     }
-                    break;
-                case 'gitTrace':
-                    if (typeof message.id === 'string') { void this.runGitTrace(message.id); }
                     break;
                 case 'contractCheck':
                     void this.runContractCheck();
@@ -235,7 +225,6 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
         this.running = undefined;
         this.cancelAi();
         this.cancelCrossRef();
-        this.cancelGitTrace();
         this.cancelContractCheck();
         this.crossRefFiles.clear();
         this.editor = editor;
@@ -301,7 +290,6 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
         this.running = undefined;
         this.cancelAi();
         this.cancelCrossRef();
-        this.cancelGitTrace();
         this.cancelContractCheck();
         const document = this.editor?.document;
         if (!document || !/\.(vue|js|ts)$/i.test(document.fileName)) {
@@ -407,11 +395,10 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
     }
 
     /**
-     * 跨文件检索：全部按需触发，不建立常驻索引，结果有上限且可被下一次操作中断。
-     * 「谁引用了我」限定在当前文件；「跨文件调用点」只接受本次分析结果里已有的节点名，
-     * 避免面板变成任意符号的全库搜索入口。
+     * 谁引用了我：按需触发，不建立常驻索引，结果有上限且可被下一次操作中断。
+     * 只检索「引用本文件」这一种，不做任意符号的全库搜索。
      */
-    private async runCrossRef(kind: 'importers' | 'symbol', value: string, id?: string): Promise<void> {
+    private async runImporters(value: string): Promise<void> {
         const document = this.editor?.document;
         const snapshot = this.snapshot;
         if (!document || !snapshot || document.uri.toString() !== snapshot.uri
@@ -424,31 +411,18 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
             this.replyCrossRef(value, 'error', undefined, '请先打开一个工作区文件夹，跨文件检索只在工作区内进行。');
             return;
         }
-        let symbol = '';
-        if (kind === 'symbol') {
-            const node = snapshot.result.nodes.find(item => item.id === id);
-            if (!node || !node.name) {
-                this.replyCrossRef(value, 'error', undefined, '该节点已不在当前分析结果中，请刷新后重试。');
-                return;
-            }
-            symbol = node.name;
-        }
         this.crossRef?.abort();
         const controller = new AbortController();
         this.crossRef = controller;
         const token = this.crossRefToken;
         this.crossPending.add(value);
         try {
-            const root = folder.uri.fsPath;
-            const result = kind === 'importers'
-                ? await findImporters({ root, target: document.uri.fsPath, signal: controller.signal })
-                : await findSymbolSites({
-                    root, symbol, excludeFile: document.uri.fsPath, signal: controller.signal
-                });
+            const result = await findImporters({
+                root: folder.uri.fsPath, target: document.uri.fsPath, signal: controller.signal
+            });
             if (token !== this.crossRefToken) { return; }
             // 只累积，不覆盖：面板上可能同时留着多次检索的结果，这些文件都允许被点开。
             for (const row of result.importers) { this.crossRefFiles.add(row.absolute); }
-            for (const row of result.hits) { this.crossRefFiles.add(row.absolute); }
             this.replyCrossRef(value, 'ready', result);
         } catch (error) {
             if (token !== this.crossRefToken) { return; }
@@ -479,72 +453,6 @@ export class CodeNavPanel implements vscode.WebviewViewProvider {
         const position = new vscode.Position(line - 1, 0);
         editor.selection = new vscode.Selection(position, position);
         editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-    }
-
-    /** 切换文件或重新分析时作废在途的 blame；主动取消同样回一条终态，避免按钮卡在加载中。 */
-    private cancelGitTrace(): void {
-        this.gitTraceToken++;
-        this.gitTrace?.abort();
-        this.gitTrace = undefined;
-        for (const id of this.gitTracePending) { this.replyGitTrace(id, 'cancelled'); }
-        this.gitTracePending.clear();
-    }
-
-    /**
-     * 函数级 Git 溯源：只对这一个函数的行区间做 blame，不做全库 blame、不留缓存。
-     * 非 git 仓库 / 未装 git 都返回 unavailable 而非报错，面板直接不展示这一块。
-     */
-    private async runGitTrace(id: string): Promise<void> {
-        const document = this.editor?.document;
-        const snapshot = this.snapshot;
-        if (!document || !snapshot || document.uri.toString() !== snapshot.uri
-            || document.uri.scheme !== 'file') {
-            this.replyGitTrace(id, 'error', undefined, '当前文件正在分析或已修改，请刷新后重试。');
-            return;
-        }
-        const node = snapshot.result.nodes.find(item => item.id === id);
-        if (!node || node.range.endLine < node.range.startLine) {
-            this.replyGitTrace(id, 'error', undefined, '该节点已不在当前分析结果中，请刷新后重试。');
-            return;
-        }
-        this.gitTrace?.abort();
-        const controller = new AbortController();
-        this.gitTrace = controller;
-        const token = this.gitTraceToken;
-        this.gitTracePending.add(id);
-        try {
-            const outcome = await traceRange({
-                file: document.uri.fsPath,
-                startLine: node.range.startLine,
-                endLine: node.range.endLine,
-                signal: controller.signal
-            });
-            if (token !== this.gitTraceToken) { return; }
-            if (outcome.state === 'unavailable') {
-                this.replyGitTrace(id, 'unavailable', undefined, outcome.reason);
-            } else {
-                // 编辑器里有未保存改动时，blame 读到的是磁盘内容，行号可能与面板不一致。
-                const trace = { ...outcome.trace, unsaved: document.isDirty };
-                this.replyGitTrace(id, 'ready', trace);
-            }
-        } catch (error) {
-            if (token !== this.gitTraceToken) { return; }
-            this.replyGitTrace(id, 'error', undefined,
-                error instanceof Error ? error.message : String(error));
-        } finally {
-            if (this.gitTrace === controller) {
-                this.gitTrace = undefined;
-                this.gitTracePending.delete(id);
-            }
-        }
-    }
-
-    private replyGitTrace(
-        id: string, state: 'ready' | 'unavailable' | 'error' | 'cancelled',
-        trace?: GitTrace, message?: string
-    ): void {
-        if (!this.view) { return; }
-        void this.view.webview.postMessage({ type: 'gitTrace', id, state, trace, message });
     }
 
     /** 切换文件或重新分析时作废在途的契约校验；主动取消回一条终态，避免按钮停在加载中。 */

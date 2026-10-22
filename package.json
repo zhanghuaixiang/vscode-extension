@@ -3,7 +3,7 @@
 	"publisher": "zhanghuaixiang",
 	"displayName": "Rapid Tools",
 	"description": "ics-vscode 插件",
-	"version": "0.0.6",
+	"version": "0.1.1",
 	"icon": "images/icon.png",
 	"repository": "https://github.com/zhanghuaixiang/vscode-extension.git",
 	"engines": {
@@ -99,8 +99,9 @@
 			"properties": {
 				"AI.enable": {
 					"type": "boolean",
-					"default": false,
-					"description": "代码理解面板的 AI 解读开关（默认关闭；关闭时不发起任何请求）"
+					"default": true,
+					"order": 1,
+					"description": "代码理解面板的 AI 解读开关（默认开启；关闭时不发起任何请求）"
 				},
 				"AI.model": {
 					"type": "string",
@@ -124,7 +125,7 @@
 				},
 				"Converter.ctType": {
 					"type": "string",
-					"default": "tw",
+					"default": "hk",
 					"enum": [
 						"hk",
 						"tw",
@@ -134,8 +135,8 @@
 				},
 				"Converter.enLabel": {
 					"type": "string",
-					"default": "你现在的角色是一个翻译，接下来我会向你发送一些中文，请将我接下来发给你的中文直接翻译成英文。",
-					"description": "简转EN 的提示词（大模型API前置对话）"
+					"default": "你是一个中英翻译引擎，把我发送的内容直接翻译成英文。",
+					"description": "简转EN 的提示词（作为前置对话发送，仅返回译文）"
 				},
 				"I18n.enable": {
 					"type": "boolean",

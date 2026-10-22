@@ -183,33 +183,35 @@ export default class ReadI18n {
 
     /**
      * 从模块源码中提取国际化对象字面量（含首尾花括号）
-     * 通过花括号深度扫描定位，扫描过程会跳过字符串、模板字符串与注释，
-     * 因此文案里的 // 、/* 以及文件顶部的 import { x } 都不会造成误判；
-     * 同时不再预处理换行符，兼容 LF 与 CRLF 两种行尾
+     * 先扫描出全文所有成对花括号，再按导出写法挑选：优先取 export default /
+     * module.exports = 之后的那个对象；若对象是先赋值给变量再导出（锚点后只有
+     * 变量名、没有花括号），则退回取跨度最大的对象，避免整份语言数据丢失
      */
     private static extractObjectSource(raw: string): string | null {
         const text = raw.replace(/^\uFEFF/, "");
-        // 优先从 export default / module.exports = 之后找对象起始，避免误取 import 解构的花括号
+        const spans = ReadI18n.scanObjects(text).sort((a, b) => a[0] - b[0]);
+        if (!spans.length) {
+            return null;
+        }
+        // 锚点之后起点最靠前的花括号即目标对象的起始，可避免误取 import 解构的花括号
         const anchor = /export\s+default\s*|module\.exports\s*=\s*/.exec(text);
-        const start = text.indexOf("{", anchor ? anchor.index + anchor[0].length : 0);
-        if (start === -1) {
-            return null;
-        }
-        const end = ReadI18n.findObjectEnd(text, start);
-        if (end === -1) {
-            return null;
-        }
+        const from = anchor ? anchor.index + anchor[0].length : -1;
+        const anchored = from === -1 ? undefined : spans.find(([start]) => start >= from);
+        const [start, end] = anchored || spans.reduce((a, b) => (b[1] - b[0] > a[1] - a[0] ? b : a));
         // 去掉文案中的 <img> 标记，避免悬停时展示无用标签
         return text.substring(start, end + 1).replace(/<img.+?\/(?:img)?>/g, "");
     }
 
     /**
-     * 从 start 处的 { 起做深度扫描，返回与之配对的 } 下标；未闭合时返回 -1
+     * 单次扫描源码，返回所有成对花括号的 [起始下标, 结束下标]
+     * 扫描过程跳过字符串、模板字符串与注释，因此文案里的注释符号不会造成误判；
+     * 行尾兼容 LF / CRLF / CR，注释未闭合时按“其后内容不属于代码”处理
      */
-    private static findObjectEnd(text: string, start: number): number {
-        let depth = 0;
+    private static scanObjects(text: string): Array<[number, number]> {
+        const spans: Array<[number, number]> = [];
+        const stack: number[] = [];
         let quote = "";
-        for (let i = start; i < text.length; i++) {
+        for (let i = 0; i < text.length; i++) {
             const ch = text.charAt(i);
             if (quote) {
                 if (ch === "\\") {
@@ -222,27 +224,29 @@ export default class ReadI18n {
             if (ch === '"' || ch === "'" || ch === "`") {
                 quote = ch;
             } else if (ch === "/" && text.charAt(i + 1) === "/") {
-                const nl = text.indexOf("\n", i);
-                if (nl === -1) {
-                    return -1;
+                const lf = text.indexOf("\n", i);
+                const cr = text.indexOf("\r", i);
+                const stop = lf === -1 ? cr : cr === -1 ? lf : Math.min(lf, cr);
+                if (stop === -1) {
+                    break;
                 }
-                i = nl;
+                i = stop;
             } else if (ch === "/" && text.charAt(i + 1) === "*") {
                 const close = text.indexOf("*/", i + 2);
                 if (close === -1) {
-                    return -1;
+                    break;
                 }
                 i = close + 1;
             } else if (ch === "{") {
-                depth++;
+                stack.push(i);
             } else if (ch === "}") {
-                depth--;
-                if (depth === 0) {
-                    return i;
+                const start = stack.pop();
+                if (start !== undefined) {
+                    spans.push([start, i]);
                 }
             }
         }
-        return -1;
+        return spans;
     }
 
     /**

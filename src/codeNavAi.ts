@@ -2,15 +2,39 @@ import * as crypto from 'crypto';
 import { CodeNavResult, NavNode } from './codeNavTypes';
 
 /** 修改 prompt 模板或上下文结构时必须递增，用于让已有的 AI 结果缓存失效。 */
-export const AI_PROMPT_VERSION = 3;
+export const AI_PROMPT_VERSION = 5;
+
+/**
+ * 解读只回答这四个问题：能读到代码的人不缺“这段代码做了什么”，缺的是判断。
+ * 栏目名会原样出现在 prompt 里，改动即等于改输出结构，必须同时递增 AI_PROMPT_VERSION。
+ */
+export const AI_SECTIONS = [
+    '什么时候会走到',
+    '改动联动',
+    '踩坑点',
+    '建议阅读顺序'
+] as const;
 
 export const AI_SYSTEM_PROMPT = [
-    '你是代码阅读助手，帮助开发者快速抓住一个陌生源文件的重点。',
-    '只依据下面给出的静态事实与源码做解释，不要编造调用关系、读写关系或运行时执行顺序。',
-    '严格控制篇幅：文件级最多 4 条要点、合计不超过 150 字；节点级最多 3 条、合计不超过 80 字。',
-    '不复述代码逐行内容，只给结论：这段代码做什么、关键分支在哪、改动时要注意什么。',
-    '每条结论后用 [L12] 或 [L12-L18] 标注依据行号，行号必须来自下面出现过的内容。',
-    '用中文输出 markdown：优先用 - 列表、**加粗**与 `行内代码`；不要标题、表格，不要粘贴大段代码块。'
+    '你是带过项目的资深工程师，同事第一次读这段陌生代码，你在告诉他“换成我我会先知道什么”。',
+    '他不缺“这段代码做了什么”：入口、函数清单、状态流转、Props/事件、生命周期时间轴、作者备注，面板上已经列出来了，你复述一遍等于没写。',
+    '你只写他读完代码也未必能立刻得出的判断，按下面四栏作答，写不出内容的栏整栏省略，不要为了凑满四栏编造：',
+    `### ${AI_SECTIONS[0]}`,
+    '什么触发条件或前置状态才会执行到这里；哪种情况下看着会被走到、实际不会。',
+    `### ${AI_SECTIONS[1]}`,
+    '要改某个行为必须同时改哪几处，只改其中一处会出现什么现象。必须点名具体的函数名、变量名或行号。',
+    `### ${AI_SECTIONS[2]}`,
+    '哪个分支要满足什么前提才成立，前提不满足时会怎样静默失效；缺失的入参校验、未处理的异常、可能为空的取值、被共享的引用、异步竞态、循环里的重复开销。',
+    `### ${AI_SECTIONS[3]}`,
+    '先看哪几个符号就能理解主体，每个符号一句话说明为什么先看它。',
+    '硬约束：',
+    '1. 每条必须是“条件 → 后果”的因果句，并落到具体符号或行号上；“设计合理”“需要注意”这类没有具体所指的话直接删掉。',
+    '2. 找不到依据就少写或不写，宁缺毋滥。',
+    '3. 只依据下面给出的静态事实与源码作答，不要编造调用关系、读写关系或运行时执行顺序。',
+    '4. 每条结论后用 [L12] 或 [L12-L18] 标注依据行号，行号必须来自下面出现过的内容。',
+    '5. 严格控制篇幅：文件级每栏最多 2 条、全文不超过 260 字；节点级每栏最多 1 条、全文不超过 140 字；每条一行，不要展开成段落。',
+    '6. 用中文 markdown 输出：只写上面四个 “### 栏目名” 与 “- ”列表项，不要别的标题、表格或大段代码块。',
+    '下面如果给出“当前聚焦节点”，就只针对该节点作答，不要扩展到整个文件。'
 ].join('\n');
 
 export type AiScope = { kind: 'file' } | { kind: 'node'; id: string };
@@ -30,6 +54,10 @@ const FLOW_LIMIT = 30;
 const TIMELINE_LIMIT = 40;
 const COMMENT_LIMIT = 20;
 const SLICE_LIMIT = 120;
+/** 文件级上下文里附带的源码总行数上限，控制请求体大小（内网环境不发送整份大文件）。 */
+const FILE_SLICE_LIMIT = 160;
+/** 文件级上下文里最多附几个节点的源码。 */
+const FILE_NODE_LIMIT = 6;
 
 export function scopeKey(scope: AiScope): string {
     return scope.kind === 'file' ? 'file' : scope.id;
@@ -98,6 +126,42 @@ function sourceSlice(source: string, node: NavNode): string {
     for (let line = from; line <= to; line++) { body.push(`${line}\t${lines[line - 1]}`); }
     if (node.range.endLine > to) { body.push(`…（已截断，原文到 L${node.range.endLine}）`); }
     return body.join('\n');
+}
+
+/**
+ * 文件级上下文附带的重点源码：整份文件不超预算时直接给全文，
+ * 否则先给入口节点、再按跨度补几个最大的节点，共用同一份行数预算。
+ * 仍然不发送整份大文件：切片总量有固定上限。
+ */
+function fileSlices(result: CodeNavResult, source: string, byId: Map<string, NavNode>): string {
+    const lines = source.split(/\r?\n/);
+    if (result.meta.totalLines <= FILE_SLICE_LIMIT) {
+        return lines.slice(0, FILE_SLICE_LIMIT)
+            .map((line, index) => `${index + 1}\t${line}`).join('\n');
+    }
+    const picked: NavNode[] = [];
+    const push = (node: NavNode | undefined) => {
+        if (node && !picked.includes(node)) { picked.push(node); }
+    };
+    result.guide.entries.forEach(id => push(byId.get(id)));
+    for (const node of [...result.nodes].sort((left, right) =>
+        (right.range.endLine - right.range.startLine) - (left.range.endLine - left.range.startLine))) {
+        if (picked.length >= FILE_NODE_LIMIT) { break; }
+        push(node);
+    }
+
+    const out: string[] = [];
+    let budget = FILE_SLICE_LIMIT;
+    for (const node of picked) {
+        if (budget <= 0) { break; }
+        const from = Math.max(1, node.range.startLine);
+        const to = Math.min(lines.length, node.range.endLine, from + budget - 1);
+        out.push(`【${node.name} L${from}-L${to}】`);
+        for (let line = from; line <= to; line++) { out.push(`${line}\t${lines[line - 1]}`); }
+        if (node.range.endLine > to) { out.push(`…（已截断，原文到 L${node.range.endLine}）`); }
+        budget -= to - from + 1;
+    }
+    return out.join('\n');
 }
 
 /**
@@ -179,6 +243,12 @@ export function buildContext(result: CodeNavResult, source: string, scope: AiSco
             out.push(sourceSlice(source, node));
         } else {
             out.push('', `当前聚焦节点：${scope.id}（未在静态结果中找到）`);
+        }
+    } else {
+        const slices = fileSlices(result, source, byId);
+        if (slices) {
+            out.push('', '源码（每行以行号开头，大文件只给了重点节点的切片，未列出的部分视为存在但未展示）：');
+            out.push(slices);
         }
     }
 

@@ -1,5 +1,5 @@
 /**
- * 跨文件证据：反向 import（谁引用了我）与跨文件候选调用点。
+ * 跨文件证据：反向 import（谁引用了我）。
  *
  * 性能约束（弱机环境）：
  * - 不建立常驻全库索引，全部按需触发；
@@ -36,23 +36,13 @@ export interface ImporterRow {
     certainty: Certainty;
 }
 
-/** 一条跨文件符号命中行（候选档，不做语义解析）。 */
-export interface SymbolRow {
-    file: string;
-    absolute: string;
-    line: number;
-    text: string;
-    kind: 'call' | 'ref';
-}
-
+/** 一条跨文件候选命中行（候选档，不做语义解析）。 */
 export interface CrossRefResult {
-    kind: 'importers' | 'symbol';
-    /** 展示用查询目标：文件名或符号名 */
+    /** 展示用查询目标：文件名 */
     query: string;
     engine: 'git' | 'files';
     durationMs: number;
     importers: ImporterRow[];
-    hits: SymbolRow[];
     truncated: boolean;
     note?: string;
 }
@@ -77,10 +67,6 @@ function isCodeFile(filePath: string): boolean {
 
 function isIndexFile(base: string): boolean {
     return /^index(\.[a-z]+)?$/i.test(base);
-}
-
-function escapeRegExp(text: string): string {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -354,24 +340,18 @@ async function gitBackend(root: string, args: string[], signal: AbortSignal): Pr
 }
 
 /** 非 git 仓库时的兜底：有界枚举 + 逐文件按字面量搜索。 */
-async function fsBackend(
-    root: string, patterns: string[], word: string | undefined, signal: AbortSignal
-): Promise<BackendResult> {
+async function fsBackend(root: string, patterns: string[], signal: AbortSignal): Promise<BackendResult> {
     const uris = await vscode.workspace.findFiles(
         '**/*.{vue,js,ts,jsx,tsx,mjs,cjs}', '**/node_modules/**', FALLBACK_FILES);
     const hits: RawHit[] = [];
-    const needle = word ? new RegExp(`\\b${escapeRegExp(word)}\\b`, 'g') : undefined;
-    let scanned = 0;
     for (const uri of uris) {
         if (signal.aborted) { break; }
-        scanned++;
         const text = await readTextFile(uri.fsPath);
         if (!text) { continue; }
         const lines = text.split(/\r?\n/);
         for (let index = 0; index < lines.length; index++) {
             const line = lines[index];
-            const matched = needle ? needle.test(line) : patterns.some(item => line.includes(item));
-            if (matched) {
+            if (patterns.some(item => line.includes(item))) {
                 hits.push({ absolute: uri.fsPath, line: index + 1, text: snippetOf(line) });
             }
         }
@@ -431,7 +411,7 @@ export async function findImporters(query: ImporterQuery): Promise<CrossRefResul
     if (gitHits) {
         backend = { hits: gitHits, engine: 'git', truncated: false };
     } else {
-        backend = await fsBackend(query.root, patterns, undefined, query.signal);
+        backend = await fsBackend(query.root, patterns, query.signal);
     }
 
     const byFile = new Map<string, RawHit[]>();
@@ -480,69 +460,11 @@ export async function findImporters(query: ImporterQuery): Promise<CrossRefResul
     importers.sort((a, b) => (a.certainty === b.certainty ? 0 : a.certainty === 'certain' ? -1 : 1));
 
     return {
-        kind: 'importers',
         query: path.basename(query.target),
         engine: backend.engine,
         durationMs: Date.now() - started,
         importers: importers.slice(0, ROWS_LIMIT),
-        hits: [],
         truncated: truncated || importers.length > ROWS_LIMIT,
-        note: backend.note
-    };
-}
-
-export interface SymbolQuery {
-    root: string;
-    symbol: string;
-    /** 定义所在文件，命中该文件的调用已在函数卡片里展示，这里剔除避免重复 */
-    excludeFile?: string;
-    signal: AbortSignal;
-}
-
-/**
- * 跨文件候选调用点：按符号名做全工作区整词匹配。
- * 这一档刻意不做语义解析（不猜别名、不建索引），只给「可能相关」的位置，供人工确认。
- */
-export async function findSymbolSites(query: SymbolQuery): Promise<CrossRefResult> {
-    const started = Date.now();
-    const callPattern = new RegExp(`\\b${escapeRegExp(query.symbol)}\\s*\\(`);
-    let backend: BackendResult;
-    const gitHits = await gitBackend(query.root, ['-w', '-F', '-e', query.symbol], query.signal);
-    if (gitHits) {
-        backend = { hits: gitHits, engine: 'git', truncated: false };
-    } else {
-        backend = await fsBackend(query.root, [], query.symbol, query.signal);
-    }
-
-    const rows: SymbolRow[] = [];
-    const seen = new Set<string>();
-    for (const hit of backend.hits) {
-        if (query.signal.aborted) { break; }
-        if (!isCodeFile(hit.absolute)) { continue; }
-        if (query.excludeFile && sameFile(hit.absolute, query.excludeFile)) { continue; }
-        // import / export 行是引用声明而不是调用点，噪声大，直接剔除
-        if (/^\s*(?:import|export)\b/.test(hit.text)) { continue; }
-        const key = `${hit.absolute}:${hit.line}`;
-        if (seen.has(key)) { continue; }
-        seen.add(key);
-        rows.push({
-            file: path.relative(query.root, hit.absolute) || hit.absolute,
-            absolute: hit.absolute,
-            line: hit.line,
-            text: hit.text,
-            kind: callPattern.test(hit.text) ? 'call' : 'ref'
-        });
-        if (rows.length >= ROWS_LIMIT) { break; }
-    }
-
-    return {
-        kind: 'symbol',
-        query: query.symbol,
-        engine: backend.engine,
-        durationMs: Date.now() - started,
-        importers: [],
-        hits: rows,
-        truncated: backend.truncated || rows.length >= ROWS_LIMIT,
         note: backend.note
     };
 }

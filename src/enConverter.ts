@@ -64,11 +64,27 @@ export default class ENConverter {
         return vscode.workspace.getConfiguration().get<string>('Converter.enLabel')?.trim() ?? '';
     }
 
+    /**
+     * 前置对话：用户配置的角色提示词 + 「只回译文」硬约束。
+     * 约束固定在代码里，用户改提示词也绕不开，避免译文里混入解释性文字。
+     */
+    private static systemPrompt(): string {
+        return [
+            ENConverter.prompt(),
+            "只输出译文本身：不要任何解释、说明、注释、前后缀或复述原文；"
+            + "不要用引号包裹，也不要用 Markdown 代码块；"
+            + "原文是一行就回一行，是多行就按原样分行返回，不要合并。"
+        ].join("\n");
+    }
+
     /** 走统一 AI 通道；失败时返回空串（失败原因已通过消息提示给出）。 */
     static async postQuestion(text?: string): Promise<string> {
         const outcome = await chat({
             config: readAiSettings().gateway,
-            messages: [{ role: "user", content: "翻译：" + (text || ENConverter.prompt()) }]
+            messages: [
+                { role: "system", content: ENConverter.systemPrompt() },
+                { role: "user", content: text || ENConverter.prompt() }
+            ]
         });
         if (outcome.ok) {
             return outcome.text;

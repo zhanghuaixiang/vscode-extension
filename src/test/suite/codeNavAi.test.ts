@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { analyze } from '../../codeNavCore';
-import { AI_SYSTEM_PROMPT, buildContext, insightCacheKey, parseInsight } from '../../codeNavAi';
+import { AI_PROMPT_VERSION, AI_SECTIONS, AI_SYSTEM_PROMPT, buildContext, insightCacheKey, parseInsight } from '../../codeNavAi';
 import { CodeNavResult, NavNode } from '../../codeNavTypes';
 
 const source = [
@@ -102,5 +102,14 @@ suite('codeNavAi', () => {
         assert.ok(AI_SYSTEM_PROMPT.includes('严格控制篇幅'), AI_SYSTEM_PROMPT);
         assert.ok(AI_SYSTEM_PROMPT.includes('[L12]'), AI_SYSTEM_PROMPT);
         assert.ok(AI_SYSTEM_PROMPT.includes('markdown'), AI_SYSTEM_PROMPT);
+    });
+
+    test('locks the insight output to the four questions a reader actually asks', () => {
+        // 四栏是输出协议：改了栏目名就同时改了面板结构，必须递增 AI_PROMPT_VERSION。
+        assert.deepStrictEqual([...AI_SECTIONS], ['什么时候会走到', '改动联动', '踩坑点', '建议阅读顺序']);
+        for (const section of AI_SECTIONS) {
+            assert.ok(AI_SYSTEM_PROMPT.includes(`### ${section}`), section);
+        }
+        assert.strictEqual(AI_PROMPT_VERSION, 5);
     });
 });

@@ -326,12 +326,6 @@
             const host = el('div', 'ai-host');
             host.dataset.aiScope = card.id;
             box.append(host);
-            const cross = el('div', 'cross-host');
-            cross.dataset.crossKey = `symbol:${card.id}`;
-            box.append(cross);
-            const git = el('div', 'cross-host');
-            git.dataset.gitScope = card.id;
-            box.append(git);
             list.append(box);
         }
         section.append(list);
@@ -531,8 +525,8 @@
             return block;
         }
         block.append(el('p', 'ai-note', scope === 'file'
-            ? '按需生成一段解读：只依据上面的静态事实，结论带行号，可点击回到源码。'
-            : '生成该节点的解读：只依据本文件静态事实与这段源码。'));
+            ? '按需生成解读：只答「什么时候会走到 / 改动联动 / 踩坑点 / 阅读顺序」，不重复上面的静态结论。'
+            : '生成该节点的解读：同样只答那四问，范围限在这个节点。'));
         block.append(button(scope === 'file' ? '生成解读' : '生成节点解读', 'aiAsk', scope, 'ai-action'));
         return block;
     }
@@ -562,17 +556,13 @@
         vscode.postMessage({ type: 'aiInsight', scope, force: force || undefined });
     }
 
-    // 跨文件证据：与 AI 不同，这是确定性检索结果。按需触发、结果有上限，
-    // 面板侧不建索引，所以这里只负责展示与状态回收。
+    // 跨文件证据：与 AI 不同，这是确定性检索结果。只做「谁引用了我」，
+    // 按需触发、结果有上限，面板侧不建索引，所以这里只负责展示与状态回收。
     let crossPending = new Set();
     let crossResult = new Map();
     let crossError = new Map();
 
-    function crossLabel(key) {
-        return key === 'importers' ? '检索引用方' : '检索跨文件调用点';
-    }
-
-    function crossRows(rows, kind) {
+    function crossRows(rows) {
         const list = el('div', 'cross-list');
         for (const row of rows) {
             const item = el('div', 'cross-row');
@@ -584,37 +574,29 @@
             head.append(jump);
             head.append(el('span', 'line-mark', `L${row.line}`));
             if (row.certainty === 'unresolved') head.append(el('span', 'contract-flag', '未确认'));
-            if (kind === 'symbol') {
-                head.append(el('span', 'contract-flag', row.kind === 'call' ? '疑似调用' : '仅出现'));
-            }
             item.append(head);
-            item.append(el('div', 'cross-detail', kind === 'symbol' ? row.text : row.detail));
+            item.append(el('div', 'cross-detail', row.detail));
             list.append(item);
         }
         return list;
     }
 
-    function crossGroup(title, rows, kind) {
+    function crossGroup(title, rows) {
         const group = el('div', 'cross-group');
         group.append(el('div', 'cross-group-head', `${title}（${rows.length}）`));
         if (!rows.length) group.append(el('p', 'ai-note', '无。'));
-        else group.append(crossRows(rows, kind));
+        else group.append(crossRows(rows));
         return group;
     }
 
     function crossBlock(key) {
-        const kind = key === 'importers' ? 'importers' : 'symbol';
         const pending = crossPending.has(key);
         const result = crossResult.get(key);
         const error = crossError.get(key);
-        // 函数卡片里每个节点都挂一个入口，空闲态只留一行按钮，避免面板被塞满。
-        if (!result && !error && !pending && kind === 'symbol') {
-            return button(crossLabel(key), 'crossRef', key, 'ai-action');
-        }
         const block = el('section', 'cross-block');
         const head = el('div', 'cross-head');
         head.append(el('span', 'cross-badge', '跨文件'));
-        head.append(el('span', 'cross-title', kind === 'importers' ? '谁引用了我' : '跨文件调用点'));
+        head.append(el('span', 'cross-title', '谁引用了我'));
         if (pending) head.append(el('span', 'ai-status', '正在检索…'));
         else if (result) head.append(button('重新检索', 'crossRef', key, 'ai-action'));
         block.append(head);
@@ -624,31 +606,23 @@
         }
         if (error) {
             block.append(el('p', 'ai-note', error));
-            block.append(button(crossLabel(key), 'crossRef', key, 'ai-action'));
+            block.append(button('检索引用方', 'crossRef', key, 'ai-action'));
             return block;
         }
         if (!result) {
-            block.append(el('p', 'ai-note', kind === 'importers'
-                ? '按需检索工作区内引用本文件的位置：能解析回本文件的进「确定」，其余命中放「未确认」。'
-                : '按需检索本文件之外使用该符号的位置。这一档只按名字匹配，属于候选，需人工确认。'));
-            block.append(button(crossLabel(key), 'crossRef', key, 'ai-action'));
+            block.append(el('p', 'ai-note',
+                '按需检索工作区内引用本文件的位置：能解析回本文件的进「确定」，其余命中放「未确认」。'));
+            block.append(button('检索引用方', 'crossRef', key, 'ai-action'));
             return block;
         }
-        if (kind === 'importers') {
-            const certain = result.importers.filter(row => row.certainty === 'certain');
-            const unresolved = result.importers.filter(row => row.certainty !== 'certain');
-            block.append(crossGroup('确定引用', certain, 'importers'));
-            block.append(crossGroup('未确认命中', unresolved, 'importers'));
-        } else {
-            block.append(crossGroup('候选位置', result.hits, 'symbol'));
-        }
+        const certain = result.importers.filter(row => row.certainty === 'certain');
+        const unresolved = result.importers.filter(row => row.certainty !== 'certain');
+        block.append(crossGroup('确定引用', certain));
+        block.append(crossGroup('未确认命中', unresolved));
         const engine = result.engine === 'git' ? 'git grep' : '有界文件扫描';
         block.append(el('p', 'cross-meta', `${engine} · ${result.durationMs} ms${
             result.truncated ? ' · 结果已截断' : ''}`));
         if (result.note) block.append(el('p', 'ai-note', result.note));
-        if (kind === 'symbol') {
-            block.append(el('p', 'ai-note', '以上为名字匹配的候选位置，不代表真实调用关系；确定结论仍以上方静态分析为准。'));
-        }
         return block;
     }
 
@@ -665,12 +639,7 @@
         crossResult.delete(key);
         crossError.delete(key);
         refreshCrossRef();
-        vscode.postMessage({
-            type: 'crossRef',
-            kind: key === 'importers' ? 'importers' : 'symbol',
-            value: key,
-            id: key === 'importers' ? undefined : key.slice('symbol:'.length)
-        });
+        vscode.postMessage({ type: 'crossRef', value: key });
     }
 
     function crossSection() {
@@ -681,91 +650,6 @@
         host.dataset.crossKey = 'importers';
         section.append(host);
         return section;
-    }
-
-    // Git 溯源：函数级 blame。只对点开的那个函数取一次行区间，不建索引、不落缓存，
-    // 非 git 仓库 / 未装 git 只在点开后就地说明原因，不阻塞其它能力。
-    let gitPending = new Set();
-    let gitTrace = new Map();
-    let gitError = new Map();
-
-    function gitAgo(seconds) {
-        const past = Math.max(0, Math.floor(Date.now() / 1000) - seconds);
-        if (past < 60) return '刚刚';
-        if (past < 3600) return `${Math.floor(past / 60)} 分钟前`;
-        if (past < 86400) return `${Math.floor(past / 3600)} 小时前`;
-        if (past < 2592000) return `${Math.floor(past / 86400)} 天前`;
-        if (past < 31536000) return `${Math.floor(past / 2592000)} 个月前`;
-        return `${Math.floor(past / 31536000)} 年前`;
-    }
-
-    function gitBlock(id) {
-        const pending = gitPending.has(id);
-        const trace = gitTrace.get(id);
-        const error = gitError.get(id);
-        // 每张函数卡片默认只留一行入口，避免面板被塞满。
-        if (!trace && !error && !pending) {
-            return button('谁改的', 'gitTrace', id, 'ai-action');
-        }
-        const block = el('section', 'cross-block');
-        const head = el('div', 'cross-head');
-        head.append(el('span', 'cross-badge', 'Git'));
-        head.append(el('span', 'cross-title', '改动来源'));
-        if (pending) head.append(el('span', 'ai-status', '正在读取…'));
-        else head.append(button('重新读取', 'gitTrace', id, 'ai-action'));
-        block.append(head);
-        if (pending) {
-            block.append(el('p', 'ai-note', '正在读取本地 git 记录，切换文件即可中断。'));
-            return block;
-        }
-        if (error) {
-            block.append(el('p', 'ai-note', error));
-            return block;
-        }
-        if (trace.untracked && !trace.authors.length) {
-            block.append(el('p', 'ai-note', `本区间 ${trace.totalLines} 行都还没有提交记录（文件尚未被 git 跟踪）。`));
-        } else {
-            const latest = el('div', 'git-latest');
-            if (trace.latest) {
-                const row = el('div', 'node-row');
-                row.append(el('span', 'git-author', trace.latest.author || '未知作者'));
-                row.append(el('span', 'line-mark', gitAgo(trace.latest.time)));
-                row.append(el('span', 'line-mark', `${trace.latest.lines} 行归属此提交`));
-                latest.append(row);
-                if (trace.latest.summary) latest.append(el('div', 'cross-detail', trace.latest.summary));
-            } else {
-                latest.append(el('p', 'ai-note', '本区间没有已提交的行。'));
-            }
-            block.append(latest);
-            if (trace.authors.length > 1) {
-                block.append(el('p', 'cross-meta', `区间内作者：${
-                    trace.authors.map(item => `${item.author || '未知'}（${item.lines} 行）`).join('、')}`));
-            }
-        }
-        if (trace.dirtyLines > 0) {
-            block.append(el('p', 'ai-note', `本区间有 ${trace.dirtyLines} 行是本地未提交改动。`));
-        }
-        if (trace.unsaved) {
-            block.append(el('p', 'ai-note', '编辑器内有未保存改动，行号以磁盘版本为准。'));
-        }
-        block.append(el('p', 'cross-meta', `git blame · ${trace.durationMs} ms`));
-        return block;
-    }
-
-    function refreshGitTrace() {
-        for (const host of root.querySelectorAll('[data-git-scope]')) {
-            const block = gitBlock(host.dataset.gitScope);
-            host.replaceChildren();
-            if (block) host.append(block);
-        }
-    }
-
-    function requestGitTrace(id) {
-        gitPending.add(id);
-        gitTrace.delete(id);
-        gitError.delete(id);
-        refreshGitTrace();
-        vscode.postMessage({ type: 'gitTrace', id });
     }
 
     // 契约校验：用本文件的 props / emits 核对父组件模板。同样是按需触发、结果有上限。
@@ -1293,8 +1177,6 @@
             vscode.postMessage({ type: 'configure' });
         } else if (action === 'crossRef') {
             requestCrossRef(target.dataset.value);
-        } else if (action === 'gitTrace') {
-            requestGitTrace(target.dataset.value);
         } else if (action === 'contractCheck') {
             requestContractCheck();
         } else if (action === 'crossOpen') {
@@ -1338,10 +1220,6 @@
                 crossPending = new Set();
                 crossResult = new Map();
                 crossError = new Map();
-                // blame 结论同样绑在具体文件的行号上，一并作废。
-                gitPending = new Set();
-                gitTrace = new Map();
-                gitError = new Map();
                 contractState = null;
                 // 检索命中绑在旧快照的节点 id 上，一并作废；输入内容保留，重新问一次。
                 filterState = null;
@@ -1371,20 +1249,6 @@
                 crossError.set(message.value, message.message || '跨文件检索失败');
             }
             refreshCrossRef();
-        } else if (message?.type === 'gitTrace') {
-            gitPending.delete(message.id);
-            if (message.state === 'ready') {
-                gitTrace.set(message.id, message.trace);
-                gitError.delete(message.id);
-            } else if (message.state === 'cancelled') {
-                gitTrace.delete(message.id);
-                gitError.delete(message.id);
-            } else {
-                gitTrace.delete(message.id);
-                gitError.set(message.id, message.message || (message.state === 'unavailable'
-                    ? '当前环境无法读取 git 记录。' : '读取 git 记录失败'));
-            }
-            refreshGitTrace();
         } else if (message?.type === 'contractCheck') {
             // cancelled 只用于回收按钮状态（切文件等主动取消），不展示为失败。
             contractState = message.state === 'cancelled' ? null : message;
